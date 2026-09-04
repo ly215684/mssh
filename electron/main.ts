@@ -27,7 +27,7 @@ function createWindow() {
     show: false,
     backgroundColor: '#0b0f0c',
     titleBarStyle: 'hidden',
-    icon: path.join(process.env.VITE_PUBLIC!, 'icon.svg'),
+    icon: path.join(process.env.VITE_PUBLIC!, 'icon.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       sandbox: false,

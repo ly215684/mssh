@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1e293b"/>
+      <stop offset="100%" stop-color="#0f172a"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#22d3ee"/>
+      <stop offset="100%" stop-color="#3b82f6"/>
+    </linearGradient>
+  </defs>
+  <!-- 背景圆角方块 -->
+  <rect x="32" y="32" width="448" height="448" rx="96" ry="96" fill="url(#bg)"/>
+  <!-- 文件夹主体 -->
+  <path d="M120 170 h128 q16 0 16 16 v16 h72 q16 0 16 16 v128 q0 16 -16 16 H120 q-16 0 -16-16 V186 q0-16 16-16 z"
+        fill="none" stroke="url(#accent)" stroke-width="14" stroke-linejoin="round"/>
+  <!-- 终端窗口（嵌入文件夹内） -->
+  <rect x="160" y="236" width="192" height="120" rx="12" fill="#0f172a" stroke="url(#accent)" stroke-width="6"/>
+  <!-- 终端标题栏 -->
+  <rect x="160" y="236" width="192" height="32" rx="12" fill="#1e293b"/>
+  <rect x="160" y="256" width="192" height="12" fill="#1e293b"/>
+  <!-- 红绿黄按钮 -->
+  <circle cx="184" cy="252" r="6" fill="#f87171"/>
+  <circle cx="204" cy="252" r="6" fill="#fbbf24"/>
+  <circle cx="224" cy="252" r="6" fill="#34d399"/>
+  <!-- 终端内容：提示符 > -->
+  <polyline points="184,300 204,320 184,340" fill="none" stroke="url(#accent)" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+  <line x1="220" y1="336" x2="256" y2="336" stroke="#94a3b8" stroke-width="8" stroke-linecap="round"/>
+  <!-- 光标 -->
+  <rect x="268" y="326" width="14" height="18" rx="3" fill="url(#accent)">
+    <animate attributeName="opacity" values="1;0;1" dur="1.6s" repeatCount="indefinite"/>
+  </rect>
+</svg>

@@ -15,8 +15,9 @@ export function TitleBar() {
 
   return (
     <div
-      className="app-drag flex items-center h-[var(--titlebar-h)] pl-3 bg-bg border-b border-bd shrink-0 select-none"
+      className="app-drag flex items-center h-[var(--titlebar-h)] pl-3 bg-bg border-b border-bd shrink-0 select-none gap-2"
     >
+      <img src="/icon.png" alt="mssh" className="w-4 h-4 rounded-sm" />
       <div className="text-xs text-dim truncate">{title}</div>
       <div className="flex-1" />
       {window.api.platform !== 'darwin' && (

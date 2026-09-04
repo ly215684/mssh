@@ -1,0 +1,58 @@
+name: Release
+
+# 打 tag（v*）或手动触发：三平台打包并上传到 GitHub Releases
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    strategy:
+      # 单平台失败不影响其它平台产物
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Type check & build renderer
+        run: pnpm exec tsc && pnpm exec vite build
+
+      - name: Package & publish to GitHub Releases
+        run: pnpm exec electron-builder --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # macOS 无签名证书时跳过代码签名
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: mssh-${{ matrix.os }}
+          if-no-files-found: error
+          path: |
+            release/**/*.exe
+            release/**/*.dmg
+            release/**/*.AppImage

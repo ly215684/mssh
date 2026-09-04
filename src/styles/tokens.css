@@ -1,0 +1,171 @@
+/* ============================================================
+   mssh 样式入口 — Tailwind CSS v4 + CSS 变量多主题令牌
+   主题通过 html[data-theme] 切换 CSS 变量，工具类自动跟随
+   ============================================================ */
+@import 'tailwindcss';
+@import './base.css';
+
+/* dark: 变体绑定到 data-theme 属性 */
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
+/* ---------- 布局尺寸 / 字体 / 阴影（与主题无关） ---------- */
+:root {
+  --sidebar-w: 232px;
+  --titlebar-h: 36px;
+  --tabbar-h: 38px;
+  --statusbar-h: 26px;
+
+  --font-ui: -apple-system, 'Segoe UI', 'Microsoft YaHei', 'PingFang SC', sans-serif;
+  --font-mono: 'Cascadia Mono', Consolas, 'JetBrains Mono', 'Courier New', monospace;
+
+  --shadow-modal: 0 12px 40px rgba(0, 0, 0, 0.35);
+  --shadow-pop: 0 6px 20px rgba(0, 0, 0, 0.25);
+}
+
+/* ---------- 暗色主题令牌 ---------- */
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --bg: #0b0f0c;             /* 主背景（近黑） */
+  --bg-panel: #10150f;       /* 侧栏 / 面板 */
+  --bg-elevated: #151c15;    /* 弹窗 / 浮层 */
+  --bg-input: #0e130e;       /* 输入框 */
+  --bg-hover: #1a231b;       /* hover */
+  --bg-active: #22301f;      /* 选中 */
+  --bg-soft: #131a13;        /* 次级区域 */
+
+  --bd: #243024;             /* 常规边框 */
+  --bd-strong: #3a4a3a;      /* 强边框 */
+
+  --accent: #22c55e;         /* 绿色强调 */
+  --accent-hover: #34d96f;
+  --accent-strong: #16a34a;
+  --accent-contrast: #06130a; /* 强调色上的文字 */
+  --accent-dim: rgba(34, 197, 94, 0.14);
+
+  --fg: #d9e4da;             /* 主文字 */
+  --fg-dim: #7f8f81;         /* 次级文字 */
+  --fg-faint: #556456;       /* 弱文字 */
+  --danger: #ef4444;
+  --warning: #eab308;
+  --info: #38bdf8;
+
+  --term-bg: #0a0e0b;
+  --term-fg: #c9d6ca;
+  --term-cursor: #22c55e;
+  --term-selection: rgba(34, 197, 94, 0.3);
+}
+
+/* ---------- 亮色主题令牌 ---------- */
+:root[data-theme='light'] {
+  color-scheme: light;
+
+  --bg: #f5f7f4;
+  --bg-panel: #ffffff;
+  --bg-elevated: #ffffff;
+  --bg-input: #fbfcfa;
+  --bg-hover: #eef3ee;
+  --bg-active: #e2efe4;
+  --bg-soft: #f0f4ef;
+
+  --bd: #e3e9e2;
+  --bd-strong: #c9d4c8;
+
+  --accent: #16a34a;
+  --accent-hover: #15803d;
+  --accent-strong: #15803d;
+  --accent-contrast: #ffffff;
+  --accent-dim: rgba(22, 163, 74, 0.12);
+
+  --fg: #1b2520;
+  --fg-dim: #6b7a6e;
+  --fg-faint: #9aa79c;
+  --danger: #dc2626;
+  --warning: #ca8a04;
+  --info: #0284c7;
+
+  --term-bg: #ffffff;
+  --term-fg: #24312a;
+  --term-cursor: #16a34a;
+  --term-selection: rgba(22, 163, 74, 0.25);
+}
+
+/* ---------- 映射为 Tailwind 令牌（inline: 引用变量，随主题切换） ---------- */
+@theme inline {
+  --color-bg: var(--bg);
+  --color-panel: var(--bg-panel);
+  --color-elevated: var(--bg-elevated);
+  --color-input: var(--bg-input);
+  --color-hover: var(--bg-hover);
+  --color-active: var(--bg-active);
+  --color-soft: var(--bg-soft);
+
+  --color-bd: var(--bd);
+  --color-bd-strong: var(--bd-strong);
+
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-strong: var(--accent-strong);
+  --color-accent-contrast: var(--accent-contrast);
+  --color-accent-dim: var(--accent-dim);
+
+  --color-fg: var(--fg);
+  --color-dim: var(--fg-dim);
+  --color-faint: var(--fg-faint);
+  --color-danger: var(--danger);
+  --color-warning: var(--warning);
+  --color-info: var(--info);
+
+  --color-term-bg: var(--term-bg);
+  --color-term-fg: var(--term-fg);
+  --color-term-cursor: var(--term-cursor);
+  --color-term-selection: var(--term-selection);
+
+  --font-ui: var(--font-ui);
+  --font-mono: var(--font-mono);
+
+  --shadow-modal: var(--shadow-modal);
+  --shadow-pop: var(--shadow-pop);
+}
+
+/* Tailwind v4 需要显式声明用到的自定义动画 */
+@theme {
+  --animate-msg-in: msg-in 0.18s ease-out;
+  --animate-modal-in: modal-in 0.16s ease-out;
+  --animate-overlay-in: overlay-in 0.16s ease-out;
+  --animate-spin: spin 0.8s linear infinite;
+
+  @keyframes msg-in {
+    from {
+      opacity: 0;
+      transform: translateY(-8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  @keyframes modal-in {
+    from {
+      opacity: 0;
+      transform: scale(0.97);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+  @keyframes overlay-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+}

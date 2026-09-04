@@ -1,0 +1,40 @@
+/* ============ 基础样式补充（reset 由 Tailwind preflight 提供） ============ */
+
+html,
+body,
+#root {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: var(--font-ui);
+  font-size: 13px;
+  color: var(--fg);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+/* 允许选择的区域 */
+.selectable,
+input,
+textarea {
+  user-select: text;
+}
+
+/* 滚动条 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--bd);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--bd-strong);
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}

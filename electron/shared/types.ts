@@ -133,6 +133,20 @@ export interface TransferItem {
   error?: string
 }
 
+/** 自动更新事件（主进程 → 渲染进程） */
+export interface UpdateEvent {
+  type: 'checking' | 'available' | 'not-available' | 'progress' | 'downloaded' | 'error'
+  payload?: {
+    version?: string
+    /** 0-100 */
+    percent?: number
+    transferred?: number
+    total?: number
+    bytesPerSecond?: number
+    message?: string
+  }
+}
+
 /** 配置一次性全量返回 */
 export interface AllConfig {
   settings: AppSettings

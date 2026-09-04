@@ -69,6 +69,16 @@ const api: RendererApi = {
   localMkdir: dir => ipcRenderer.invoke('local:mkdir', dir),
   localRm: target => ipcRenderer.invoke('local:rm', target),
   localRename: (from, to) => ipcRenderer.invoke('local:rename', from, to),
+
+  updateActive: () => ipcRenderer.invoke('update:active'),
+  updateCheck: () => ipcRenderer.invoke('update:check'),
+  updateDownload: () => ipcRenderer.invoke('update:download'),
+  updateInstall: () => ipcRenderer.invoke('update:install'),
+  onUpdateEvent: cb => {
+    const l = listener<[Parameters<typeof cb>[0]]>(e => cb(e))
+    ipcRenderer.on('update:event', l)
+    return () => ipcRenderer.off('update:event', l)
+  },
 }
 
 contextBridge.exposeInMainWorld('api', api)

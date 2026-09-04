@@ -8,6 +8,7 @@ import type {
   SshSessionInfo,
   SshSettings,
   TransferItem,
+  UpdateEvent,
 } from './types'
 
 /** preload 通过 contextBridge 暴露给渲染进程的 API（主/渲染共享类型） */
@@ -65,4 +66,15 @@ export interface RendererApi {
   localMkdir: (path: string) => Promise<void>
   localRm: (path: string) => Promise<void>
   localRename: (from: string, to: string) => Promise<void>
+
+  // ---- 自动更新 ----
+  /** 更新器是否可用（dev / 未签名环境为 false） */
+  updateActive: () => Promise<boolean>
+  /** 检查更新，返回最新版本号；不可用或失败返回 null（事件里会有错误详情） */
+  updateCheck: () => Promise<string | null>
+  updateDownload: () => Promise<void>
+  /** 退出并安装已下载的更新 */
+  updateInstall: () => Promise<void>
+  /** 更新事件订阅（返回取消订阅函数） */
+  onUpdateEvent: (cb: (e: UpdateEvent) => void) => () => void
 }

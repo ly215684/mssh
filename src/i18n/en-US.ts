@@ -161,6 +161,22 @@ export default {
   'msg.deleteGroupConfirm': 'Delete group "{name}"? Connections will move to ungrouped.',
   'msg.deleteConnConfirm': 'Delete connection "{name}"?',
   'msg.restoreFailed': 'Failed to restore session: {msg}',
+
+  'update.title': 'Software Update',
+  'update.checking': 'Checking for updates...',
+  'update.available': 'New version {version} available',
+  'update.availableHint': 'You will be prompted when the download completes',
+  'update.latest': 'You are on the latest version',
+  'update.download': 'Download Update',
+  'update.later': 'Later',
+  'update.downloading': 'Downloading update',
+  'update.downloaded': '{version} downloaded',
+  'update.restart': 'Restart & Install',
+  'update.restartHint': 'The app will restart to finish installing',
+  'update.failed': 'Update check failed',
+  'update.failedSilent': 'Automatic update check failed. You can retry later.',
+  'update.check': 'Check for Updates',
+  'update.unavailableInDev': 'Auto-update is unavailable in development (works when packaged)',
 } as const
 
 export type DictKey = keyof typeof import('./en-US').default

@@ -4,6 +4,11 @@
   "appId": "com.mssh.app",
   "asar": true,
   "productName": "mssh",
+  "publish": {
+    "provider": "github",
+    "owner": "ly215684",
+    "repo": "mssh"
+  },
   "directories": {
     "output": "release/${version}"
   },

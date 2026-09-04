@@ -161,6 +161,22 @@ export default {
   'msg.deleteGroupConfirm': '删除分组「{name}」？组内连接将移至未分组。',
   'msg.deleteConnConfirm': '确认删除连接「{name}」？',
   'msg.restoreFailed': '会话恢复失败: {msg}',
+
+  'update.title': '软件更新',
+  'update.checking': '正在检查更新...',
+  'update.available': '发现新版本 {version}',
+  'update.availableHint': '下载完成后会提示你安装',
+  'update.latest': '当前已是最新版本',
+  'update.download': '下载更新',
+  'update.later': '稍后',
+  'update.downloading': '正在下载更新',
+  'update.downloaded': '{version} 下载完成',
+  'update.restart': '立即重启安装',
+  'update.restartHint': '重启后将自动完成安装',
+  'update.failed': '检查更新失败',
+  'update.failedSilent': '自动检查更新失败，可稍后手动重试',
+  'update.check': '检查更新',
+  'update.unavailableInDev': '开发模式下自动更新不可用（打包后生效）',
 } as const
 
 export type DictKey = keyof typeof import('./zh-CN').default

@@ -1,10 +1,14 @@
 import { useSessionStore } from '../stores/sessionStore'
 import { useConnStore } from '../stores/connStore'
 import { useT } from '../i18n/I18nProvider'
+import { Tooltip } from '../components/ui'
+import { useCheckUpdate } from '../components/UpdateDialog'
+import { RefreshCw } from 'lucide-react'
 
 /** 底部状态栏：SSH2 | 加密算法 | host:port | UTF-8 + 连接状态（参照设计图） */
 export function StatusBar() {
   const t = useT()
+  const checkUpdate = useCheckUpdate()
   const activeTab = useSessionStore(s => s.tabs.find(x => x.id === s.activeTabId))
   const connSession = useSessionStore(s =>
     activeTab ? s.connSessions[activeTab.connectionId] : undefined,
@@ -47,6 +51,16 @@ export function StatusBar() {
           <span>mssh</span>
         </>
       )}
+
+      <Tooltip label={t('update.check')}>
+        <button
+          onClick={checkUpdate}
+          className="flex items-center gap-1 text-dim hover:text-fg transition-colors mono"
+        >
+          <RefreshCw size={11} />
+          v{__APP_VERSION__}
+        </button>
+      </Tooltip>
     </div>
   )
 }

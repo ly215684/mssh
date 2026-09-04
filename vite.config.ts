@@ -1,11 +1,20 @@
 import { defineConfig } from 'vite'
 import path from 'node:path'
+import { readFileSync } from 'node:fs'
 import electron from 'vite-plugin-electron/simple'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
+const pkg: { version: string } = JSON.parse(
+  readFileSync(new URL('./package.json', import.meta.url), 'utf-8'),
+)
+
 // https://vitejs.dev/config/
 export default defineConfig({
+  define: {
+    // 注入应用版本号（StatusBar 显示 / 关于信息）
+    __APP_VERSION__: JSON.stringify(pkg.version),
+  },
   plugins: [
     tailwindcss(),
     react(),

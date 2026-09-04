@@ -36,6 +36,9 @@ export interface RendererApi {
   pickPrivateKey: () => Promise<string | null>
   /** 拖拽文件 → 真实磁盘路径 */
   pathForFile: (file: File) => string
+  /** 剪贴板 */
+  clipboardReadText: () => Promise<string>
+  clipboardWriteText: (text: string) => Promise<void>
 
   // ---- SSH ----
   sshConnect: (conn: Connection, sshSettings: SshSettings) => Promise<SshSessionInfo>

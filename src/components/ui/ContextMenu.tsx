@@ -17,7 +17,7 @@ interface CtxStore {
 }
 
 /** 全局右键菜单状态（单例，避免各组件漏渲染菜单节点） */
-const useCtxStore = create<CtxStore>((set) => ({
+export const useCtxStore = create<CtxStore>((set) => ({
   menu: null,
   open: menu => set({ menu }),
   close: () => set({ menu: null }),

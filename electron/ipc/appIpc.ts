@@ -1,4 +1,4 @@
-import { BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { BrowserWindow, clipboard, dialog, ipcMain, shell } from 'electron'
 
 export function registerAppIpc() {
   ipcMain.handle('win:min', e => {
@@ -30,4 +30,8 @@ export function registerAppIpc() {
     })
     return r.canceled || r.filePaths.length === 0 ? null : r.filePaths[0]
   })
+
+  // 剪贴板（渲染进程直接调 navigator.clipboard 可能被权限限制，走主进程更可靠）
+  ipcMain.handle('clipboard:readText', () => clipboard.readText())
+  ipcMain.handle('clipboard:writeText', (_e, text: string) => clipboard.writeText(text))
 }

@@ -6,6 +6,8 @@ import type { ITheme } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
 import { useAppStore } from '../../stores/appStore'
 import type { ThemeMode } from '../../../electron/shared/types'
+import { Clipboard, Copy } from 'lucide-react'
+import { useCtxStore } from '../../components/ui/ContextMenu'
 
 /** 终端 ANSI 配色（与主题令牌一致的绿色系） */
 function buildTheme(mode: ThemeMode): ITheme {
@@ -64,7 +66,7 @@ interface TermProps {
   sessionId: string
 }
 
-/** xterm.js 封装：数据流、自适应、主题/设置热更新 */
+/** xterm.js 封装：数据流、自适应、主题/设置热更新、右键复制粘贴 */
 export function Term({ sessionId }: TermProps) {
   const hostRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
@@ -106,7 +108,35 @@ export function Term({ sessionId }: TermProps) {
     ro.observe(el)
     term.focus()
 
+    // 右键菜单：复制选中 / 粘贴剪贴板
+    const onContextMenu = async (e: MouseEvent) => {
+      e.preventDefault()
+      const hasSelection = term.hasSelection()
+      const items = [
+        ...(hasSelection
+          ? [{ key: 'copy', label: '复制', icon: <Copy size={14} /> }]
+          : []),
+        { key: 'paste', label: '粘贴', icon: <Clipboard size={14} /> },
+      ]
+      useCtxStore.getState().open({
+        x: e.clientX,
+        y: e.clientY,
+        items,
+        onPick: async (key: string) => {
+          if (key === 'copy' && hasSelection) {
+            await window.api.clipboardWriteText(term.getSelection())
+            term.clearSelection()
+          } else if (key === 'paste') {
+            const text = await window.api.clipboardReadText()
+            if (text) window.api.sshWrite(sessionId, text)
+          }
+        },
+      })
+    }
+    el.addEventListener('contextmenu', onContextMenu)
+
     return () => {
+      el.removeEventListener('contextmenu', onContextMenu)
       offData()
       dataSub.dispose()
       resizeSub.dispose()

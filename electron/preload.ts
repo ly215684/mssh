@@ -26,6 +26,8 @@ const api: RendererApi = {
   openPath: p => ipcRenderer.invoke('app:openPath', p),
   pickPrivateKey: () => ipcRenderer.invoke('app:pickPrivateKey'),
   pathForFile: file => webUtils.getPathForFile(file),
+  clipboardReadText: () => ipcRenderer.invoke('clipboard:readText'),
+  clipboardWriteText: text => ipcRenderer.invoke('clipboard:writeText', text),
 
   sshConnect: (conn, sshSettings) => ipcRenderer.invoke('ssh:connect', conn, sshSettings),
   sshWrite: (sessionId, data) => ipcRenderer.invoke('ssh:write', sessionId, data),

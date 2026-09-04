@@ -31,6 +31,13 @@ export function updaterActive(): boolean {
 export function initAutoUpdater() {
   if (!updaterActive()) return
 
+  // 显式指定 GitHub provider，确保走 api.github.com 而非网页 URL（避免 406）
+  autoUpdater.setFeedURL({
+    provider: 'github',
+    owner: 'ly215684',
+    repo: 'mssh',
+  })
+
   autoUpdater.autoDownload = false
   // 下载完成后即使用户不点安装，退出时也会自动安装
   autoUpdater.autoInstallOnAppQuit = true

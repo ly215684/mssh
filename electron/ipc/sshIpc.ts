@@ -8,4 +8,5 @@ export function registerSshIpc() {
     ssh.resize(sessionId, cols, rows),
   )
   ipcMain.handle('ssh:disconnect', (_e, sessionId: string) => ssh.disconnect(sessionId))
+  ipcMain.handle('ssh:stats', (_e, sessionId: string) => ssh.getSysStats(sessionId))
 }

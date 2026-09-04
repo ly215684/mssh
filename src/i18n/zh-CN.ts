@@ -82,6 +82,9 @@ export default {
   // 状态栏
   'status.protocol': 'SSH2',
   'status.encoding': 'UTF-8',
+  'status.cpu': 'CPU',
+  'status.mem': '内存',
+  'status.disk': '磁盘',
 
   // SFTP
   'sftp.local': '本地文件',

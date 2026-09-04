@@ -110,6 +110,24 @@ export interface SshSessionInfo {
   username: string
 }
 
+/** 远程服务器实时资源占用（CPU 1 秒采样，内存/磁盘快照） */
+export interface SysStats {
+  /** CPU 使用率 0-100 */
+  cpu: number
+  /** 内存使用率 0-100 */
+  mem: number
+  /** 内存已用 MB */
+  memUsed: number
+  /** 内存总量 MB */
+  memTotal: number
+  /** 磁盘使用率 0-100 */
+  disk: number
+  /** 磁盘已用 GB */
+  diskUsed: number
+  /** 磁盘总量 GB */
+  diskTotal: number
+}
+
 /** 传输方向 */
 export type TransferDirection = 'upload' | 'download'
 

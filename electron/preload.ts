@@ -31,6 +31,7 @@ const api: RendererApi = {
   sshWrite: (sessionId, data) => ipcRenderer.invoke('ssh:write', sessionId, data),
   sshResize: (sessionId, cols, rows) => ipcRenderer.invoke('ssh:resize', sessionId, cols, rows),
   sshDisconnect: sessionId => ipcRenderer.invoke('ssh:disconnect', sessionId),
+  sshStats: sessionId => ipcRenderer.invoke('ssh:stats', sessionId),
   onSshData: (sessionId, cb) => {
     const l = listener<[string, string]>((id, data) => {
       if (id === sessionId) cb(data)

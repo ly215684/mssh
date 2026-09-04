@@ -7,6 +7,7 @@ import type {
   LayoutState,
   SshSessionInfo,
   SshSettings,
+  SysStats,
   TransferItem,
   UpdateEvent,
 } from './types'
@@ -41,6 +42,8 @@ export interface RendererApi {
   sshWrite: (sessionId: string, data: string) => void
   sshResize: (sessionId: string, cols: number, rows: number) => void
   sshDisconnect: (sessionId: string) => Promise<void>
+  /** 获取远程服务器 CPU/内存/磁盘占用（阻塞约 1.5 秒） */
+  sshStats: (sessionId: string) => Promise<SysStats>
   /** 返回取消订阅函数 */
   onSshData: (sessionId: string, cb: (data: string) => void) => () => void
   onSshExit: (sessionId: string, cb: () => void) => () => void

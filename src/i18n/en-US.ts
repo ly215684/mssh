@@ -82,6 +82,9 @@ export default {
   // Status bar
   'status.protocol': 'SSH2',
   'status.encoding': 'UTF-8',
+  'status.cpu': 'CPU',
+  'status.mem': 'Memory',
+  'status.disk': 'Disk',
 
   // SFTP
   'sftp.local': 'Local Files',

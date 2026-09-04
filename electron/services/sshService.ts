@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import fs from 'node:fs'
 import { StringDecoder } from 'node:string_decoder'
 import { BrowserWindow } from 'electron'
-import type { Connection, SshSessionInfo, SshSettings } from '../shared/types'
+import type { Connection, SshSessionInfo, SshSettings, SysStats } from '../shared/types'
 
 export interface SshSession {
   id: string
@@ -190,4 +190,91 @@ export function isConnected(connectionId: string): boolean {
     if (s.connCfg.id === connectionId) return true
   }
   return false
+}
+
+/** 通过 SSH 会话执行命令，返回 stdout 文本（非交互模式） */
+export function exec(sessionId: string, command: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const session = sessions.get(sessionId)
+    if (!session) return reject(new Error('SSH session not found'))
+    session.conn.exec(command, (err, stream) => {
+      if (err) return reject(err)
+      let out = ''
+      let errOut = ''
+      const dec = new StringDecoder('utf8')
+      const errDec = new StringDecoder('utf8')
+      stream.on('data', (d: Buffer) => {
+        out += dec.write(d)
+      })
+      stream.stderr.on('data', (d: Buffer) => {
+        errOut += errDec.write(d)
+      })
+      stream.on('close', () => {
+        out += dec.end()
+        errOut += errDec.end()
+        resolve(out)
+      })
+    })
+  })
+}
+
+/** 解析 /proc/stat 的 cpu 行，返回 [busy, total] */
+function parseCpuLine(line: string): [number, number] {
+  const parts = line.trim().split(/\s+/).slice(1).map(Number)
+  const [user, nice, system, idle, iowait, irq, softirq, steal] = parts
+  const idleTotal = idle + iowait
+  const total = user + nice + system + idle + iowait + irq + softirq + (steal ?? 0)
+  return [total - idleTotal, total]
+}
+
+/**
+ * 获取远程服务器资源占用。
+ * 策略：两次采样 /proc/stat（间隔 1s）算实时 CPU，同时取 /proc/meminfo 与 df。
+ */
+export async function getSysStats(sessionId: string): Promise<SysStats> {
+  const output = await exec(
+    sessionId,
+    "head -1 /proc/stat; sleep 1; head -1 /proc/stat; " +
+      "grep -E '^(MemTotal|MemAvailable):' /proc/meminfo; " +
+      "df -B1 / | tail -1",
+  )
+  const lines = output.split('\n').filter(Boolean)
+
+  const [busy1, total1] = parseCpuLine(lines[0])
+  const [busy2, total2] = parseCpuLine(lines[1])
+  const cpu = total2 === total1 ? 0 : Math.min(100, ((busy2 - busy1) / (total2 - total1)) * 100)
+
+  let memTotal = 0
+  let memAvailable = 0
+  for (let i = 2; i < lines.length; i++) {
+    const m = lines[i].match(/^(MemTotal|MemAvailable):\s+(\d+)/)
+    if (!m) continue
+    const kb = Number(m[2])
+    if (m[1] === 'MemTotal') memTotal = kb
+    else memAvailable = kb
+  }
+  const memUsedKB = Math.max(0, memTotal - memAvailable)
+  const mem = memTotal > 0 ? (memUsedKB / memTotal) * 100 : 0
+
+  // df 输出在命令末尾，取最后一行即可（已用 tail -1 保证只有一行数据）
+  const diskLine = lines[lines.length - 1]
+  let disk = 0
+  let diskTotal = 0
+  let diskUsed = 0
+  if (diskLine) {
+    const parts = diskLine.trim().split(/\s+/)
+    diskTotal = Number(parts[1]) || 0
+    diskUsed = Number(parts[2]) || 0
+    disk = diskTotal > 0 ? (diskUsed / diskTotal) * 100 : 0
+  }
+
+  return {
+    cpu: Math.round(cpu),
+    mem: Math.round(mem),
+    memUsed: Math.round(memUsedKB / 1024),
+    memTotal: Math.round(memTotal / 1024),
+    disk: Math.round(disk),
+    diskUsed: Math.round((diskUsed / 1024 / 1024 / 1024) * 10) / 10,
+    diskTotal: Math.round((diskTotal / 1024 / 1024 / 1024) * 10) / 10,
+  }
 }

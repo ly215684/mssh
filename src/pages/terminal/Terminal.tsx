@@ -108,6 +108,40 @@ export function Term({ sessionId }: TermProps) {
     ro.observe(el)
     term.focus()
 
+    /** 粘贴：规范化换行 + bracketed paste 自动处理 */
+    const doPaste = async () => {
+      const text = await window.api.clipboardReadText()
+      if (!text) return
+      // Windows \r\n、Unix \n 统一为终端回车 \r
+      const normalized = text.replace(/\r\n/g, '\r').replace(/\n/g, '\r')
+      // term.paste 自动处理 bracketed paste mode：shell 启用时多行内容
+      // 整体插入（不逐行执行，等用户回车确认）；未启用时直接发送
+      term.paste(normalized)
+    }
+
+    // Ctrl+Shift+V (Win/Linux) / Cmd+V (macOS) 粘贴
+    term.attachCustomKeyEventHandler((e: KeyboardEvent) => {
+      if (e.type !== 'keydown') return true
+      const isPaste =
+        (e.ctrlKey && e.shiftKey && (e.key === 'V' || e.key === 'v')) ||
+        (e.metaKey && (e.key === 'v' || e.key === 'V'))
+      if (isPaste) {
+        e.preventDefault()
+        void doPaste()
+        return false
+      }
+      // Ctrl+Shift+C 复制选中
+      const isCopy =
+        (e.ctrlKey && e.shiftKey && (e.key === 'C' || e.key === 'c')) ||
+        (e.metaKey && (e.key === 'c' || e.key === 'C'))
+      if (isCopy && term.hasSelection()) {
+        e.preventDefault()
+        void window.api.clipboardWriteText(term.getSelection()).then(() => term.clearSelection())
+        return false
+      }
+      return true
+    })
+
     // 右键菜单：复制选中 / 粘贴剪贴板
     const onContextMenu = async (e: MouseEvent) => {
       e.preventDefault()
@@ -127,8 +161,7 @@ export function Term({ sessionId }: TermProps) {
             await window.api.clipboardWriteText(term.getSelection())
             term.clearSelection()
           } else if (key === 'paste') {
-            const text = await window.api.clipboardReadText()
-            if (text) window.api.sshWrite(sessionId, text)
+            await doPaste()
           }
         },
       })

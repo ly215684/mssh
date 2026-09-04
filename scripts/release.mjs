@@ -65,7 +65,7 @@ const bump = (version, type) => {
 const dirty = run('git status --porcelain')
 if (dirty) die('工作区存在未提交的更改，请先提交或暂存：\n' + dirty)
 
-const branch = run('git rev-parse --abbrev-ref HEAD')
+const branch = run('git rev-parse --abbrev-ref HEAD').trim()
 
 const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'))
 const next = bump(pkg.version, arg)
@@ -76,11 +76,19 @@ if (run(`git tag -l ${tag}`)) die(`标签 ${tag} 已存在，请换一个版本�
 
 // ---------- 更新版本号 ----------
 writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n', 'utf-8')
+// 校验写入未被外部程序（如 IDE 编辑器缓冲区）覆盖回去
+if (!readFileSync(pkgPath, 'utf-8').includes(`"version": "${next}"`)) {
+  die(`package.json 写入后被外部程序覆盖回旧值（IDE 中打开的 package.json 缓冲区可能已回写）。\n请关闭编辑器中的 package.json 标签页后重试。`)
+}
 console.log(`[release] ${pkg.version} -> ${next}  (branch: ${branch})`)
 
 // ---------- 提交 + 打 tag + 推送 ----------
 try {
   run(`git add package.json`)
+  // 暂存区无变化 = 文件在 add 前被外部还原，明确报错而非让 commit 含糊失败
+  if (!run('git diff --cached --name-only')) {
+    die('package.json 的修改未能进入暂存区（文件被外部程序还原）。请关闭编辑器中的 package.json 标签页后重试。')
+  }
   run(`git commit -m "chore(release): ${tag}"`)
   run(`git tag -a ${tag} -m "Release ${tag}"`)
   run(`git push origin ${branch} ${tag}`)

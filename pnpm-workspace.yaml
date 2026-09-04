@@ -1,7 +1,8 @@
-allowBuilds:
-  electron: set this to true or false
-  esbuild: set this to true or false
 # pnpm 配置（pnpm 11 起从这里读取，package.json 的 pnpm 字段已弃用）
 ignoredBuiltDependencies:
   - cpu-features
   - ssh2
+
+onlyBuiltDependencies:
+  - electron
+  - esbuild

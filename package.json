@@ -47,6 +47,10 @@
     "ignoredBuiltDependencies": [
       "cpu-features",
       "ssh2"
+    ],
+    "onlyBuiltDependencies": [
+      "electron",
+      "esbuild"
     ]
   }
 }

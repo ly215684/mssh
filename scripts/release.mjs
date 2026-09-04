@@ -25,9 +25,11 @@ const die = msg => {
 
 const run = (cmd, opts = {}) => {
   try {
-    return execSync(cmd, { cwd: root, stdio: 'pipe', encoding: 'utf-8', ...opts }).trim()
+    return execSync(cmd, { cwd: root, stdio: 'pipe', encoding: 'utf-8', ...opts })
   } catch (e) {
-    die(`命令执行失败: ${cmd}\n${e.stderr || e.message}`)
+    // git 可能将失败原因写到 stdout 或 stderr，两者都要展示
+    const detail = [e.stdout, e.stderr].map(s => (s || '').toString().trim()).filter(Boolean).join('\n')
+    die(`命令执行失败: ${cmd}\n${detail || e.message}`)
   }
 }
 

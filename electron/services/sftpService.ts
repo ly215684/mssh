@@ -4,7 +4,7 @@ import fsp from 'node:fs/promises'
 import path from 'node:path'
 import { BrowserWindow } from 'electron'
 import type { FileInfo, TransferItem } from '../shared/types'
-import { getSession, type SshSession } from './sshService'
+import { exec, getSession, type SshSession } from './sshService'
 import { sortEntries } from './localFs'
 
 function asSession(id: string): SshSession | undefined {
@@ -117,6 +117,94 @@ export function realpath(sessionId: string, p: string): Promise<string> {
 
 export async function home(sessionId: string): Promise<string> {
   return realpath(sessionId, '.')
+}
+
+// ---------- 文件内容读写（文本编辑） ----------
+
+/** 编辑器允许的最大文件大小（2 MB） */
+const EDIT_MAX_BYTES = 2 * 1024 * 1024
+
+/** 判断字节是否可能是二进制（含 NUL 字节） */
+function isBinaryBuf(buf: Buffer): boolean {
+  const len = Math.min(buf.length, 8192)
+  for (let i = 0; i < len; i++) if (buf[i] === 0) return true
+  return false
+}
+
+/** 读取远程文件文本内容；过大或二进制时抛自定义错误 */
+export function readFile(sessionId: string, remotePath: string): Promise<string> {
+  return getSftp(sessionId).then(
+    sftp =>
+      new Promise((resolve, reject) => {
+        sftp.stat(remotePath, (err, stats) => {
+          if (err) return reject(err)
+          const size = Number(stats.size ?? 0)
+          if (size > EDIT_MAX_BYTES) {
+            return reject(
+              new Error(`文件过大（${(size / 1024 / 1024).toFixed(1)} MB），超过编辑器上限 2 MB，请用其它方式编辑。`),
+            )
+          }
+          sftp.readFile(remotePath, (e, data) => {
+            if (e) return reject(e)
+            if (isBinaryBuf(data)) {
+              return reject(new Error('该文件为二进制文件，无法用文本编辑器打开。'))
+            }
+            resolve(data.toString('utf8'))
+          })
+        })
+      }),
+  )
+}
+
+/** 写入文本到远程文件（覆盖） */
+export function writeFile(sessionId: string, remotePath: string, content: string): Promise<void> {
+  return getSftp(sessionId).then(
+    sftp =>
+      new Promise((resolve, reject) => {
+        sftp.writeFile(remotePath, Buffer.from(content, 'utf8'), err => (err ? reject(err) : resolve()))
+      }),
+  )
+}
+
+/** 创建空文件（已存在则截断） */
+export function touch(sessionId: string, remotePath: string): Promise<void> {
+  return writeFile(sessionId, remotePath, '')
+}
+
+/** 根据扩展名生成远程解压命令（解压到同目录） */
+function remoteExtractCmd(filePath: string): string | null {
+  const lower = filePath.toLowerCase()
+  const dir = filePath.replace(/\/[^/]+$/, '') || '.'
+  const quoted = `'${filePath.replace(/'/g, "'\\''")}'`
+  const quotedDir = `'${dir.replace(/'/g, "'\\''")}'`
+  if (lower.endsWith('.tar.gz') || lower.endsWith('.tgz')) return `tar -xzf ${quoted} -C ${quotedDir}`
+  if (lower.endsWith('.tar.bz2') || lower.endsWith('.tbz2')) return `tar -xjf ${quoted} -C ${quotedDir}`
+  if (lower.endsWith('.tar.xz') || lower.endsWith('.txz')) return `tar -xJf ${quoted} -C ${quotedDir}`
+  if (lower.endsWith('.tar')) return `tar -xf ${quoted} -C ${quotedDir}`
+  if (lower.endsWith('.zip')) return `unzip -o ${quoted} -d ${quotedDir}`
+  if (lower.endsWith('.7z')) return `7z x ${quoted} -o${quotedDir} -y`
+  if (lower.endsWith('.gz')) return `gunzip -k -f ${quoted}`
+  if (lower.endsWith('.bz2')) return `bunzip2 -k -f ${quoted}`
+  if (lower.endsWith('.xz')) return `unxz -k -f ${quoted}`
+  return null
+}
+
+/**
+ * 远程解压：通过 SSH 执行解压命令（解压到文件所在目录）。
+ * 返回命令的 stdout（成功时通常为空）。
+ */
+export async function extract(sessionId: string, remotePath: string): Promise<string> {
+  const cmd = remoteExtractCmd(remotePath)
+  if (!cmd) throw new Error(`不支持的压缩格式：${remotePath}`)
+  // 2>&1 合并 stderr，便于在命令失败时返回错误信息
+  const out = await exec(sessionId, `${cmd} 2>&1`)
+  // exec 只返回 stdout，不区分退出码；这里再跑一次带退出码的检查
+  const check = await exec(sessionId, `${cmd} >/dev/null 2>&1; echo $?`)
+  const code = check.trim()
+  if (code !== '0') {
+    throw new Error(out.trim() || `解压失败（退出码 ${code}）`)
+  }
+  return out
 }
 
 /** 远程路径拼接（POSIX） */

@@ -15,6 +15,7 @@ export default {
   'common.name': 'Name',
   'common.loading': 'Loading…',
   'common.empty': 'No data',
+  'common.lines': 'lines',
 
   // Sidebar
   'sidebar.searchPh': 'Search servers',
@@ -40,8 +41,18 @@ export default {
   'ctx.upload': 'Upload',
   'ctx.download': 'Download',
   'ctx.mkdir': 'New Folder',
+  'ctx.touch': 'New File',
+  'ctx.extract': 'Extract Here',
   'ctx.deleteFile': 'Delete',
   'ctx.open': 'Open',
+  'editor.title': 'Edit Remote File',
+  'editor.loading': 'Loading…',
+  'editor.saving': 'Saving…',
+  'editor.saved': 'Saved',
+  'editor.save': 'Save',
+  'editor.cancel': 'Cancel',
+  'editor.close': 'Close',
+  'editor.dirtyConfirm': 'The file has unsaved changes. Close anyway?',
 
   // New connection
   'newConn.title': 'New Connection',

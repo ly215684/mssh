@@ -58,6 +58,14 @@ export interface RendererApi {
   sftpRename: (sessionId: string, from: string, to: string) => Promise<void>
   sftpRealpath: (sessionId: string, path: string) => Promise<string>
   sftpHome: (sessionId: string) => Promise<string>
+  /** 读取远程文本文件（>2MB 或二进制会抛错） */
+  sftpReadFile: (sessionId: string, path: string) => Promise<string>
+  /** 写入文本到远程文件（覆盖） */
+  sftpWriteFile: (sessionId: string, path: string, content: string) => Promise<void>
+  /** 创建空远程文件 */
+  sftpTouch: (sessionId: string, path: string) => Promise<void>
+  /** 远程解压（解压到同目录） */
+  sftpExtract: (sessionId: string, path: string) => Promise<void>
   /** 上传（支持目录递归），返回传输任务 id 列表 */
   sftpUpload: (sessionId: string, localPaths: string[], remoteDir: string) => Promise<string[]>
   sftpDownload: (sessionId: string, remotePaths: string[], localDir: string) => Promise<string[]>
@@ -72,6 +80,10 @@ export interface RendererApi {
   localMkdir: (path: string) => Promise<void>
   localRm: (path: string) => Promise<void>
   localRename: (from: string, to: string) => Promise<void>
+  /** 创建空本地文件 */
+  localTouch: (path: string) => Promise<void>
+  /** 本地解压（解压到同目录） */
+  localExtract: (path: string) => Promise<void>
 
   // ---- 自动更新 ----
   /** 更新器是否可用（dev / 未签名环境为 false） */

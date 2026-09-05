@@ -12,6 +12,7 @@ import {
 import {
   ArrowUp,
   Download,
+  FilePlus,
   FolderPlus,
   HardDrive,
   MonitorDown,
@@ -37,11 +38,13 @@ import {
   fileIcon,
   fileIconCls,
   formatSize,
+  isArchive,
   joinPath,
   matchFilter,
   parentPath,
   type FilterKey,
 } from '../../utils/files'
+import { FileEditor } from './FileEditor'
 
 /** 跨面板传输：来源侧 + 路径列表 */
 export type TransferSource = 'local' | 'remote'
@@ -140,7 +143,10 @@ export const FilePane = forwardRef<PaneHandle, FilePaneProps>(function FilePane(
   const [renameValue, setRenameValue] = useState('')
   const [mkdirOpen, setMkdirOpen] = useState(false)
   const [mkdirValue, setMkdirValue] = useState('')
+  const [touchOpen, setTouchOpen] = useState(false)
+  const [touchValue, setTouchValue] = useState('')
   const [dragOver, setDragOver] = useState(false)
+  const [editorPath, setEditorPath] = useState<string | null>(null)
 
   const dirRef = useRef('')
   const nonceRef = useRef(0)
@@ -150,6 +156,7 @@ export const FilePane = forwardRef<PaneHandle, FilePaneProps>(function FilePane(
   const selCbRef = useRef(onSelectionChange)
   const renameBusy = useRef(false)
   const mkdirBusy = useRef(false)
+  const touchBusyRef = useRef(false)
   const { openContextMenu } = useContextMenu()
 
   useEffect(() => {
@@ -329,6 +336,39 @@ export const FilePane = forwardRef<PaneHandle, FilePaneProps>(function FilePane(
     }
   }, [mkdirValue, isRemote, sessionId, refresh])
 
+  const commitTouch = useCallback(async () => {
+    if (touchBusyRef.current) return
+    touchBusyRef.current = true
+    const name = touchValue.trim()
+    setTouchOpen(false)
+    try {
+      if (name) {
+        const target = joinPath(dirRef.current, name)
+        if (isRemote && sessionId) await window.api.sftpTouch(sessionId, target)
+        else if (!isRemote) await window.api.localTouch(target)
+        refresh()
+      }
+    } catch (e) {
+      void errorAlert(getGlobalT()('sftp.opFailed'), e)
+    } finally {
+      touchBusyRef.current = false
+    }
+  }, [touchValue, isRemote, sessionId, refresh])
+
+  const doExtract = useCallback(
+    async (f: FileInfo) => {
+      if (f.isDir || !isArchive(f.name)) return
+      try {
+        if (isRemote && sessionId) await window.api.sftpExtract(sessionId, f.path)
+        else if (!isRemote) await window.api.localExtract(f.path)
+        refresh()
+      } catch (e) {
+        void errorAlert(getGlobalT()('sftp.opFailed'), e)
+      }
+    },
+    [isRemote, sessionId, refresh],
+  )
+
   // ---------- 右键菜单 ----------
 
   const pickRow = (key: string, f: FileInfo) => {
@@ -338,6 +378,12 @@ export const FilePane = forwardRef<PaneHandle, FilePaneProps>(function FilePane(
         break
       case 'download':
         onTransfer('remote', [f.path])
+        break
+      case 'edit':
+        setEditorPath(f.path)
+        break
+      case 'extract':
+        void doExtract(f)
         break
       case 'rename':
         setRenameValue(f.name)
@@ -350,6 +396,8 @@ export const FilePane = forwardRef<PaneHandle, FilePaneProps>(function FilePane(
   }
 
   const rowMenu = (f: FileInfo): MenuItem[] => [
+    ...(isRemote ? [{ key: 'edit', label: t('ctx.edit') }] : []),
+    ...(!f.isDir && isArchive(f.name) ? [{ key: 'extract', label: t('ctx.extract') }] : []),
     ...(isRemote ? [{ key: 'download', label: t('ctx.download') }] : []),
     ...(!isRemote && !f.isDir ? [{ key: 'open', label: t('ctx.open') }] : []),
     { key: 'rename', label: t('common.rename') },
@@ -360,6 +408,7 @@ export const FilePane = forwardRef<PaneHandle, FilePaneProps>(function FilePane(
   const blankMenu = (): MenuItem[] => [
     { key: 'refresh', label: t('common.refresh') },
     { key: 'mkdir', label: t('ctx.mkdir') },
+    { key: 'touch', label: t('ctx.touch') },
   ]
 
   // ---------- 拖拽 ----------
@@ -473,6 +522,9 @@ export const FilePane = forwardRef<PaneHandle, FilePaneProps>(function FilePane(
         <IconBtn label={t('ctx.mkdir')} onClick={() => { setMkdirValue(''); setMkdirOpen(true) }}>
           <FolderPlus size={14} />
         </IconBtn>
+        <IconBtn label={t('ctx.touch')} onClick={() => { setTouchValue(''); setTouchOpen(true) }}>
+          <FilePlus size={14} />
+        </IconBtn>
         <IconBtn label={t('common.rename')} disabled={selected.size !== 1} onClick={() => {
           const name = [...selected][0]
           if (name) { setRenameValue(name); setRenaming(name) }
@@ -489,6 +541,18 @@ export const FilePane = forwardRef<PaneHandle, FilePaneProps>(function FilePane(
         >
           {isRemote ? <Download size={14} /> : <Upload size={14} />}
         </IconBtn>
+        {isRemote && (
+          <IconBtn
+            label={t('ctx.edit')}
+            disabled={selected.size !== 1 || (entries?.find(e => e.name === [...selected][0])?.isDir ?? true)}
+            onClick={() => {
+              const name = [...selected][0]
+              if (name) setEditorPath(joinPath(dirRef.current, name))
+            }}
+          >
+            <Pencil size={14} />
+          </IconBtn>
+        )}
       </div>
 
       {/* 路径行 */}
@@ -535,6 +599,7 @@ export const FilePane = forwardRef<PaneHandle, FilePaneProps>(function FilePane(
             key => {
               if (key === 'refresh') refresh()
               else if (key === 'mkdir') { setMkdirValue(''); setMkdirOpen(true) }
+              else if (key === 'touch') { setTouchValue(''); setTouchOpen(true) }
             },
           )
         }
@@ -563,6 +628,25 @@ export const FilePane = forwardRef<PaneHandle, FilePaneProps>(function FilePane(
               }}
               onBlur={() => setMkdirOpen(false)}
               placeholder={t('sftp.mkdirPh')}
+              className="flex-1 bg-transparent text-[13px] text-fg placeholder:text-faint outline-none min-w-0"
+            />
+          </div>
+        )}
+
+        {touchOpen && (
+          <div className="flex items-center gap-2 h-8 px-3 bg-hover/40">
+            <FilePlus size={15} className="text-accent shrink-0" />
+            <input
+              autoFocus
+              value={touchValue}
+              spellCheck={false}
+              onChange={e => setTouchValue(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') void commitTouch()
+                else if (e.key === 'Escape') setTouchOpen(false)
+              }}
+              onBlur={() => setTouchOpen(false)}
+              placeholder={t('ctx.touch')}
               className="flex-1 bg-transparent text-[13px] text-fg placeholder:text-faint outline-none min-w-0"
             />
           </div>
@@ -631,6 +715,14 @@ export const FilePane = forwardRef<PaneHandle, FilePaneProps>(function FilePane(
           </div>
         )}
       </div>
+
+      {/* 远程文本编辑器 */}
+      <FileEditor
+        open={editorPath !== null}
+        sessionId={sessionId}
+        path={editorPath ?? ''}
+        onClose={() => setEditorPath(null)}
+      />
     </div>
   )
 })

@@ -15,6 +15,7 @@ export default {
   'common.name': '名称',
   'common.loading': '加载中…',
   'common.empty': '暂无数据',
+  'common.lines': '行',
 
   // 侧栏
   'sidebar.searchPh': '搜索服务器名称',
@@ -40,8 +41,18 @@ export default {
   'ctx.upload': '上传',
   'ctx.download': '下载',
   'ctx.mkdir': '新建文件夹',
+  'ctx.touch': '新建文件',
+  'ctx.extract': '解压到此处',
   'ctx.deleteFile': '删除',
   'ctx.open': '打开',
+  'editor.title': '编辑远程文件',
+  'editor.loading': '加载中…',
+  'editor.saving': '保存中…',
+  'editor.saved': '已保存',
+  'editor.save': '保存',
+  'editor.cancel': '取消',
+  'editor.close': '关闭',
+  'editor.dirtyConfirm': '文件有未保存的修改，确定关闭吗？',
 
   // 新建连接
   'newConn.title': '新建连接',

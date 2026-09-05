@@ -55,6 +55,11 @@ const api: RendererApi = {
   sftpRename: (sessionId, from, to) => ipcRenderer.invoke('sftp:rename', sessionId, from, to),
   sftpRealpath: (sessionId, p) => ipcRenderer.invoke('sftp:realpath', sessionId, p),
   sftpHome: sessionId => ipcRenderer.invoke('sftp:home', sessionId),
+  sftpReadFile: (sessionId, remotePath) => ipcRenderer.invoke('sftp:readFile', sessionId, remotePath),
+  sftpWriteFile: (sessionId, remotePath, content) =>
+    ipcRenderer.invoke('sftp:writeFile', sessionId, remotePath, content),
+  sftpTouch: (sessionId, remotePath) => ipcRenderer.invoke('sftp:touch', sessionId, remotePath),
+  sftpExtract: (sessionId, remotePath) => ipcRenderer.invoke('sftp:extract', sessionId, remotePath),
   sftpUpload: (sessionId, localPaths, remoteDir) =>
     ipcRenderer.invoke('sftp:upload', sessionId, localPaths, remoteDir),
   sftpDownload: (sessionId, remotePaths, localDir) =>
@@ -72,6 +77,8 @@ const api: RendererApi = {
   localMkdir: dir => ipcRenderer.invoke('local:mkdir', dir),
   localRm: target => ipcRenderer.invoke('local:rm', target),
   localRename: (from, to) => ipcRenderer.invoke('local:rename', from, to),
+  localTouch: p => ipcRenderer.invoke('local:touch', p),
+  localExtract: p => ipcRenderer.invoke('local:extract', p),
 
   updateActive: () => ipcRenderer.invoke('update:active'),
   updateCheck: () => ipcRenderer.invoke('update:check'),

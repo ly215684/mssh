@@ -7,8 +7,14 @@ const DOC_EXTS = new Set([
   'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'md', 'csv', 'log', 'json', 'xml', 'html', 'htm', 'yml', 'yaml', 'conf', 'ini', 'sh',
 ])
 const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'tiff'])
-const ARCHIVE_EXTS = new Set(['zip', 'rar', '7z', 'tar', 'gz', 'bz2', 'xz', 'tgz', 'zst'])
+const ARCHIVE_EXTS = new Set(['zip', 'rar', '7z', 'tar', 'gz', 'bz2', 'xz', 'tgz', 'tbz2', 'txz', 'zst'])
 
+/** 是否为可解压的压缩包 */
+export function isArchive(name: string): boolean {
+  const lower = name.toLowerCase()
+  if (ARCHIVE_EXTS.has(extOf(lower))) return true
+  return lower.endsWith('.tar.gz') || lower.endsWith('.tar.bz2') || lower.endsWith('.tar.xz')
+}
 export function extOf(name: string): string {
   const i = name.lastIndexOf('.')
   return i > 0 ? name.slice(i + 1).toLowerCase() : ''

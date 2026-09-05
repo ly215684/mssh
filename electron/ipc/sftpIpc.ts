@@ -10,6 +10,17 @@ export function registerSftpIpc() {
   )
   ipcMain.handle('sftp:realpath', (_e, sessionId: string, p: string) => sftp.realpath(sessionId, p))
   ipcMain.handle('sftp:home', (_e, sessionId: string) => sftp.home(sessionId))
+  // 文本文件读写（用于远程编辑）
+  ipcMain.handle('sftp:readFile', (_e, sessionId: string, remotePath: string) =>
+    sftp.readFile(sessionId, remotePath),
+  )
+  ipcMain.handle('sftp:writeFile', (_e, sessionId: string, remotePath: string, content: string) =>
+    sftp.writeFile(sessionId, remotePath, content),
+  )
+  ipcMain.handle('sftp:touch', (_e, sessionId: string, remotePath: string) => sftp.touch(sessionId, remotePath))
+  ipcMain.handle('sftp:extract', (_e, sessionId: string, remotePath: string) =>
+    sftp.extract(sessionId, remotePath),
+  )
   ipcMain.handle('sftp:upload', (_e, sessionId: string, localPaths: string[], remoteDir: string) =>
     sftp.upload(sessionId, localPaths, remoteDir),
   )

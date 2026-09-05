@@ -256,6 +256,34 @@ function emitTransfer(item: TransferItem) {
   broadcast('transfer:progress', { ...item })
 }
 
+/** 递归计算本地路径总大小（目录内所有文件之和） */
+async function calcLocalTotalSize(p: string): Promise<number> {
+  const st = await fsp.stat(p)
+  if (!st.isDirectory()) return st.size
+  let total = 0
+  const children = await fsp.readdir(p)
+  for (const child of children) {
+    total += await calcLocalTotalSize(path.join(p, child))
+  }
+  return total
+}
+
+/** 递归计算远程路径总大小（目录内所有文件之和） */
+async function calcRemoteTotalSize(sftp: SFTPWrapper, p: string): Promise<number> {
+  const stats = await new Promise<import('ssh2').Stats>((resolve, reject) => {
+    sftp.lstat(p, (err, s) => (err ? reject(err) : resolve(s)))
+  })
+  if (!stats.isDirectory()) return Number(stats.size)
+  const entries = await new Promise<{ filename: string }[]>((resolve, reject) => {
+    sftp.readdir(p, (err, list) => (err ? reject(err) : resolve(list)))
+  })
+  let total = 0
+  for (const e of entries) {
+    total += await calcRemoteTotalSize(sftp, joinRemote(p, e.filename))
+  }
+  return total
+}
+
 /** 上传：支持文件与目录（递归），同一会话内串行执行 */
 export async function upload(sessionId: string, localPaths: string[], remoteDir: string): Promise<string[]> {
   const session = asSession(sessionId)
@@ -264,8 +292,8 @@ export async function upload(sessionId: string, localPaths: string[], remoteDir:
 
   const ids: string[] = []
   for (const lp of localPaths) {
-    const st = await fsp.stat(lp)
     const id = randomUUID()
+    const size = await calcLocalTotalSize(lp).catch(() => 0)
     transfers.set(id, {
       id,
       direction: 'upload',
@@ -273,7 +301,7 @@ export async function upload(sessionId: string, localPaths: string[], remoteDir:
       localPath: lp,
       remotePath: joinRemote(remoteDir, path.basename(lp)),
       name: path.basename(lp),
-      size: st.size,
+      size,
       transferred: 0,
       status: 'pending',
       speed: 0,
@@ -285,8 +313,13 @@ export async function upload(sessionId: string, localPaths: string[], remoteDir:
     for (const id of ids) {
       const item = transfers.get(id)
       if (!item) continue
+      const ctx = { baseTransferred: 0 }
       try {
-        await uploadEntry(sessionId, item, item.localPath, item.remotePath)
+        await uploadEntry(sessionId, item, ctx, item.localPath, item.remotePath)
+        item.transferred = item.size
+        item.speed = 0
+        item.status = 'done'
+        emitTransfer(item)
       } catch (e) {
         item.status = 'error'
         item.error = (e as Error).message
@@ -298,7 +331,13 @@ export async function upload(sessionId: string, localPaths: string[], remoteDir:
   return ids
 }
 
-async function uploadEntry(sessionId: string, item: TransferItem, localPath: string, remotePath: string) {
+async function uploadEntry(
+  sessionId: string,
+  item: TransferItem,
+  ctx: { baseTransferred: number },
+  localPath: string,
+  remotePath: string,
+) {
   const sftp = await getSftp(sessionId)
   const st = await fsp.stat(localPath)
 
@@ -306,7 +345,7 @@ async function uploadEntry(sessionId: string, item: TransferItem, localPath: str
     await ensureRemoteDir(sftp, remotePath)
     const children = await fsp.readdir(localPath)
     for (const child of children) {
-      await uploadEntry(sessionId, item, path.join(localPath, child), joinRemote(remotePath, child))
+      await uploadEntry(sessionId, item, ctx, path.join(localPath, child), joinRemote(remotePath, child))
     }
     return
   }
@@ -314,13 +353,13 @@ async function uploadEntry(sessionId: string, item: TransferItem, localPath: str
   item.status = 'active'
   emitTransfer(item)
 
+  const fileSize = st.size
   let lastTs = Date.now()
   let lastBytes = 0
   await new Promise<void>((resolve, reject) => {
     sftp.fastPut(localPath, remotePath, {
-      step: (sent: number, _chunk: number, total: number) => {
-        item.size = total
-        item.transferred = sent
+      step: (sent: number) => {
+        item.transferred = ctx.baseTransferred + sent
         const now = Date.now()
         if (now - lastTs > 300) {
           const instant = ((sent - lastBytes) * 1000) / (now - lastTs)
@@ -333,21 +372,20 @@ async function uploadEntry(sessionId: string, item: TransferItem, localPath: str
     }, err => (err ? reject(err) : resolve()))
   })
 
-  item.transferred = item.size
-  item.speed = 0
-  item.status = 'done'
-  emitTransfer(item)
+  ctx.baseTransferred += fileSize
+  item.transferred = ctx.baseTransferred
 }
 
 /** 下载：支持文件与目录（递归） */
 export async function download(sessionId: string, remotePaths: string[], localDir: string): Promise<string[]> {
   const session = asSession(sessionId)
   if (!session) throw new Error('SSH 会话不存在或已断开')
-  await getSftp(sessionId)
+  const sftp = await getSftp(sessionId)
 
   const ids: string[] = []
   for (const rp of remotePaths) {
     const id = randomUUID()
+    const size = await calcRemoteTotalSize(sftp, rp).catch(() => 0)
     transfers.set(id, {
       id,
       direction: 'download',
@@ -355,7 +393,7 @@ export async function download(sessionId: string, remotePaths: string[], localDi
       localPath: path.join(localDir, basenameRemote(rp)),
       remotePath: rp,
       name: basenameRemote(rp),
-      size: 0,
+      size,
       transferred: 0,
       status: 'pending',
       speed: 0,
@@ -367,8 +405,13 @@ export async function download(sessionId: string, remotePaths: string[], localDi
     for (const id of ids) {
       const item = transfers.get(id)
       if (!item) continue
+      const ctx = { baseTransferred: 0 }
       try {
-        await downloadEntry(sessionId, item, item.remotePath, item.localPath)
+        await downloadEntry(sessionId, item, ctx, item.remotePath, item.localPath)
+        item.transferred = item.size
+        item.speed = 0
+        item.status = 'done'
+        emitTransfer(item)
       } catch (e) {
         item.status = 'error'
         item.error = (e as Error).message
@@ -384,13 +427,19 @@ function basenameRemote(p: string): string {
   return p.replace(/\/+$/, '').split('/').pop() ?? p
 }
 
-async function downloadEntry(sessionId: string, item: TransferItem, remotePath: string, localPath: string) {
+async function downloadEntry(
+  sessionId: string,
+  item: TransferItem,
+  ctx: { baseTransferred: number },
+  remotePath: string,
+  localPath: string,
+) {
   const sftp = await getSftp(sessionId)
-  const isDir = await new Promise<boolean>((resolve, reject) => {
-    sftp.lstat(remotePath, (err, stats) => (err ? reject(err) : resolve(stats.isDirectory())))
+  const stats = await new Promise<import('ssh2').Stats>((resolve, reject) => {
+    sftp.lstat(remotePath, (err, s) => (err ? reject(err) : resolve(s)))
   })
 
-  if (isDir) {
+  if (stats.isDirectory()) {
     await fsp.mkdir(localPath, { recursive: true })
     const entries = await new Promise<{ filename: string }[]>((resolve, reject) => {
       sftp.readdir(remotePath, (err, list) => (err ? reject(err) : resolve(list)))
@@ -399,6 +448,7 @@ async function downloadEntry(sessionId: string, item: TransferItem, remotePath: 
       await downloadEntry(
         sessionId,
         item,
+        ctx,
         joinRemote(remotePath, e.filename),
         path.join(localPath, e.filename),
       )
@@ -406,10 +456,7 @@ async function downloadEntry(sessionId: string, item: TransferItem, remotePath: 
     return
   }
 
-  const size = await new Promise<number>((resolve, reject) => {
-    sftp.lstat(remotePath, (err, stats) => (err ? reject(err) : resolve(Number(stats.size))))
-  })
-  item.size = size
+  const fileSize = Number(stats.size)
   item.status = 'active'
   emitTransfer(item)
 
@@ -417,9 +464,8 @@ async function downloadEntry(sessionId: string, item: TransferItem, remotePath: 
   let lastBytes = 0
   await new Promise<void>((resolve, reject) => {
     sftp.fastGet(remotePath, localPath, {
-      step: (sent: number, _chunk: number, total: number) => {
-        item.size = total
-        item.transferred = sent
+      step: (sent: number) => {
+        item.transferred = ctx.baseTransferred + sent
         const now = Date.now()
         if (now - lastTs > 300) {
           const instant = ((sent - lastBytes) * 1000) / (now - lastTs)
@@ -432,10 +478,8 @@ async function downloadEntry(sessionId: string, item: TransferItem, remotePath: 
     }, err => (err ? reject(err) : resolve()))
   })
 
-  item.transferred = item.size
-  item.speed = 0
-  item.status = 'done'
-  emitTransfer(item)
+  ctx.baseTransferred += fileSize
+  item.transferred = ctx.baseTransferred
 }
 
 export { remoteExists }

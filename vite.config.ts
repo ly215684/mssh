@@ -4,6 +4,10 @@ import { readFileSync } from 'node:fs'
 import electron from 'vite-plugin-electron/simple'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
+import monacoEditorPlugin from 'vite-plugin-monaco-editor'
+
+// vite-plugin-monaco-editor 是 CJS 包，ESM 导入时函数挂在 .default 上
+const monacoPlugin = (monacoEditorPlugin as unknown as { default: typeof monacoEditorPlugin }).default ?? monacoEditorPlugin
 
 const pkg: { version: string } = JSON.parse(
   readFileSync(new URL('./package.json', import.meta.url), 'utf-8'),
@@ -18,6 +22,7 @@ export default defineConfig({
   plugins: [
     tailwindcss(),
     react(),
+    monacoPlugin({}),
     electron({
       main: {
         entry: 'electron/main.ts',

@@ -7,7 +7,10 @@
   "publish": {
     "provider": "github",
     "owner": "ly215684",
-    "repo": "mssh"
+    "repo": "mssh",
+    // 默认会创建 draft（草稿）release，草稿不进 /releases/latest，
+    // 会导致 electron-updater 检查更新时 406/404。必须显式发布为正式 release。
+    "releaseType": "release"
   },
   "directories": {
     "output": "release/${version}"

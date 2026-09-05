@@ -90,6 +90,7 @@ export default {
   'term.reconnect': 'Click here to reconnect',
   'term.sftp': 'SFTP',
   'term.docker': 'Docker',
+  'term.cron': 'Scheduled Tasks',
 
   // Docker
   'docker.containers': 'Containers',
@@ -140,6 +141,55 @@ export default {
   'docker.noComposeFile':
     'No .yml / .yaml files in this directory. Enter a subdirectory or type a path above.',
   'docker.selectedFile': 'Selected',
+
+  // Scheduled tasks (cron)
+  'cron.add': 'New Task',
+  'cron.colName': 'Task',
+  'cron.colSchedule': 'Schedule',
+  'cron.colCommand': 'Command',
+  'cron.noJobs': 'No scheduled tasks',
+  'cron.ctxHint': 'Right-click a task to edit / enable / disable / delete; double-click to edit',
+  'cron.errRead': 'Failed to read crontab',
+  'cron.errWrite': 'Failed to save crontab',
+  'cron.newTitle': 'New Scheduled Task',
+  'cron.editTitle': 'Edit Scheduled Task',
+  'cron.name': 'Task Name',
+  'cron.namePh': 'Optional, shown as a remark',
+  'cron.schedule': 'Schedule',
+  'cron.schedulePh': 'min hour day month weekday, e.g. 0 3 * * *',
+  'cron.scheduleHint':
+    'Format: min hour day month weekday (0-59 0-23 1-31 1-12 0-7), supports * , - /; or special expressions like @hourly',
+  'cron.command': 'Command',
+  'cron.commandPh': 'Command to execute',
+  'cron.presetCustom': 'Custom',
+  'cron.presetMinutely': 'Every minute',
+  'cron.presetHourly': 'Hourly',
+  'cron.presetDaily': 'Daily at 0:00',
+  'cron.presetWeekly': 'Weekly (Sun 0:00)',
+  'cron.presetMonthly': 'Monthly (1st 0:00)',
+  'cron.presetReboot': 'At reboot',
+  'cron.deleteTitle': 'Delete Scheduled Task',
+  'cron.deleteConfirm': 'Delete task "{name}"? This cannot be undone.',
+  'cron.deleteDone': 'Task deleted',
+  'cron.saved': 'Scheduled task saved',
+  'cron.enabled': 'Enabled',
+  'cron.disabled': 'Disabled',
+  'cron.enable': 'Enable',
+  'cron.disable': 'Disable',
+  'cron.enableDone': 'Task enabled',
+  'cron.disableDone': 'Task disabled',
+  'cron.errScheduleTitle': 'Check your input',
+  'cron.errSchedule':
+    'Invalid schedule: expected 5 fields (min hour day month weekday) or a special expression like @reboot',
+  'cron.errCommand': 'Please enter the command to execute',
+  'cron.pickScript': 'Pick a Script',
+  'cron.pickTitle': 'Select a Script to Execute',
+  'cron.pickHint':
+    'Browse script files on the remote server; the command will be filled in automatically: .sh/.bash via bash, .py via python3, .js via node, other executables run directly.',
+  'cron.noScript': 'No script files in this directory. Enter a subdirectory or type a path above.',
+  'cron.browseFailed': 'Failed to browse remote directory',
+  'cron.useScript': 'Use Script',
+  'cron.selectedFile': 'Selected',
 
   // Status bar
   'status.protocol': 'SSH2',

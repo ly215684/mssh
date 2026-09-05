@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { Container, Download, Power, Upload } from 'lucide-react'
+import { CalendarClock, Container, Download, Power, Upload } from 'lucide-react'
 import type { SessionTab } from '../../../electron/shared/types'
 import { useConnStore } from '../../stores/connStore'
 import { useSessionStore } from '../../stores/sessionStore'
@@ -16,6 +16,7 @@ export function TerminalView({ tab }: { tab: SessionTab }) {
   const reconnect = useSessionStore(s => s.reconnect)
   const openSftp = useSessionStore(s => s.openSftp)
   const openDocker = useSessionStore(s => s.openDocker)
+  const openCron = useSessionStore(s => s.openCron)
   const disconnect = useSessionStore(s => s.disconnect)
 
   // SSH 会话退出事件 → 更新状态
@@ -48,6 +49,14 @@ export function TerminalView({ tab }: { tab: SessionTab }) {
             className="size-7 flex items-center justify-center rounded-md text-dim hover:text-accent hover:bg-accent-dim transition-colors"
           >
             <Container size={15} />
+          </button>
+        </Tooltip>
+        <Tooltip label={t('term.cron')}>
+          <button
+            onClick={() => openCron(tab.connectionId)}
+            className="size-7 flex items-center justify-center rounded-md text-dim hover:text-accent hover:bg-accent-dim transition-colors"
+          >
+            <CalendarClock size={15} />
           </button>
         </Tooltip>
         <Tooltip label={t('term.upload')}>

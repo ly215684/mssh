@@ -10,6 +10,7 @@ import { useT } from '../i18n/I18nProvider'
 import { TerminalView } from '../pages/terminal/TerminalView'
 import { SftpView } from '../pages/sftp/SftpView'
 import { DockerView } from '../pages/docker/DockerView'
+import { CronView } from '../pages/cron/CronView'
 import { Button } from '../components/ui'
 
 /** 全局快捷键：Ctrl+Tab 切换标签 / Ctrl+W 关闭标签 / Ctrl+N 新建连接 / Ctrl+, 设置 */
@@ -69,6 +70,8 @@ export function MainLayout() {
                 <TerminalView key={activeTab.id} tab={activeTab} />
               ) : activeTab.type === 'docker' ? (
                 <DockerView key={activeTab.id} tab={activeTab} />
+              ) : activeTab.type === 'cron' ? (
+                <CronView key={activeTab.id} tab={activeTab} />
               ) : (
                 <SftpView key={activeTab.id} tab={activeTab} />
               )

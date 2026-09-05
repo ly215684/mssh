@@ -68,7 +68,7 @@ export interface AppSettings {
 }
 
 /** 会话标签类型 */
-export type TabType = 'terminal' | 'sftp' | 'docker'
+export type TabType = 'terminal' | 'sftp' | 'docker' | 'cron'
 
 /** 会话标签 */
 export interface SessionTab {

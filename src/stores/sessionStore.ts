@@ -24,6 +24,7 @@ interface SessionState {
   openTerminal: (connectionId: string) => Promise<void>
   openSftp: (connectionId: string) => Promise<void>
   openDocker: (connectionId: string) => Promise<void>
+  openCron: (connectionId: string) => Promise<void>
   closeTab: (tabId: string) => void
   setActive: (tabId: string) => void
   reconnect: (connectionId: string) => Promise<void>
@@ -38,6 +39,7 @@ interface SessionState {
 function tabTitle(type: SessionTab['type'], connName: string): string {
   if (type === 'sftp') return 'SFTP'
   if (type === 'docker') return 'Docker'
+  if (type === 'cron') return 'Cron'
   return connName
 }
 
@@ -151,6 +153,24 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     get().saveLayout()
   },
 
+  openCron: async connectionId => {
+    const existed = get().tabs.find(t => t.connectionId === connectionId && t.type === 'cron')
+    if (existed) {
+      set({ activeTabId: existed.id })
+      return
+    }
+    const tabId = `${connectionId}-cron`
+    await ensureSession(get, set, connectionId)
+    set(s => {
+      if (s.tabs.some(t => t.id === tabId)) return {}
+      return {
+        tabs: [...s.tabs, { id: tabId, connectionId, type: 'cron', title: tabTitle('cron', '') }],
+        activeTabId: tabId,
+      }
+    })
+    get().saveLayout()
+  },
+
   closeTab: tabId => {
     const tab = get().tabs.find(t => t.id === tabId)
     if (!tab) return
@@ -240,6 +260,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     for (const tab of tabs) {
       if (tab.type === 'terminal') await get().openTerminal(tab.connectionId)
       else if (tab.type === 'docker') await get().openDocker(tab.connectionId)
+      else if (tab.type === 'cron') await get().openCron(tab.connectionId)
       else await get().openSftp(tab.connectionId)
     }
     if (activeTabId) set({ activeTabId })

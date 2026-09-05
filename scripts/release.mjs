@@ -75,6 +75,7 @@ const tag = `v${next}`
 if (run(`git tag -l ${tag}`)) die(`标签 ${tag} 已存在，请换一个版本号`)
 
 // ---------- 更新版本号 ----------
+pkg.version = next
 writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n', 'utf-8')
 // 校验写入未被外部程序（如 IDE 编辑器缓冲区）覆盖回去
 if (!readFileSync(pkgPath, 'utf-8').includes(`"version": "${next}"`)) {

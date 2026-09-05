@@ -23,6 +23,14 @@ textarea {
   user-select: text;
 }
 
+/* 无边框窗口拖拽区域 */
+.app-drag {
+  -webkit-app-region: drag;
+}
+.app-no-drag {
+  -webkit-app-region: no-drag;
+}
+
 /* 滚动条 */
 ::-webkit-scrollbar {
   width: 8px;

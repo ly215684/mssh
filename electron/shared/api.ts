@@ -3,6 +3,7 @@ import type {
   AppSettings,
   ConnGroup,
   Connection,
+  ExecResult,
   FileInfo,
   LayoutState,
   SshSessionInfo,
@@ -47,6 +48,18 @@ export interface RendererApi {
   sshDisconnect: (sessionId: string) => Promise<void>
   /** 获取远程服务器 CPU/内存/磁盘占用（阻塞约 1.5 秒） */
   sshStats: (sessionId: string) => Promise<SysStats>
+  /** 通过 SSH 执行一次性命令，返回 stdout/stderr/退出码 */
+  sshExec: (sessionId: string, command: string) => Promise<ExecResult>
+  /** 启动流式命令（日志跟随 / compose 长任务），返回 streamId */
+  sshExecStream: (sessionId: string, command: string) => Promise<string>
+  /** 终止流式命令 */
+  sshStreamKill: (streamId: string) => void
+  /** 流式命令输出订阅（kind: stdout/stderr），返回取消订阅函数 */
+  onSshStreamData: (
+    cb: (streamId: string, data: string, kind: 'stdout' | 'stderr') => void,
+  ) => () => void
+  /** 流式命令结束订阅，返回取消订阅函数 */
+  onSshStreamClose: (cb: (streamId: string, code: number) => void) => () => void
   /** 返回取消订阅函数 */
   onSshData: (sessionId: string, cb: (data: string) => void) => () => void
   onSshExit: (sessionId: string, cb: () => void) => () => void

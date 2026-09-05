@@ -68,7 +68,7 @@ export interface AppSettings {
 }
 
 /** 会话标签类型 */
-export type TabType = 'terminal' | 'sftp'
+export type TabType = 'terminal' | 'sftp' | 'docker'
 
 /** 会话标签 */
 export interface SessionTab {
@@ -126,6 +126,38 @@ export interface SysStats {
   diskUsed: number
   /** 磁盘总量 GB */
   diskTotal: number
+}
+
+/** SSH 一次性命令执行结果 */
+export interface ExecResult {
+  /** 退出码（0 成功） */
+  code: number
+  stdout: string
+  stderr: string
+}
+
+/** Docker 容器（docker ps 解析结果） */
+export interface DockerContainer {
+  /** 短 ID */
+  id: string
+  name: string
+  image: string
+  /** running / exited / paused / restarting / created / dead */
+  state: string
+  /** 人类可读状态，如 "Up 2 hours" / "Exited (0) 3 days ago" */
+  status: string
+  /** 端口映射文本 */
+  ports: string
+}
+
+/** Docker 镜像（docker images 解析结果） */
+export interface DockerImage {
+  /** 短 ID */
+  id: string
+  repository: string
+  tag: string
+  /** 人类可读大小，如 "123MB" */
+  size: string
 }
 
 /** 传输方向 */

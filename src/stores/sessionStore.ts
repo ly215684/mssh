@@ -23,6 +23,7 @@ interface SessionState {
   /** 置空某个标签的虚拟终端重载计数（用于重连刷新） */
   openTerminal: (connectionId: string) => Promise<void>
   openSftp: (connectionId: string) => Promise<void>
+  openDocker: (connectionId: string) => Promise<void>
   closeTab: (tabId: string) => void
   setActive: (tabId: string) => void
   reconnect: (connectionId: string) => Promise<void>
@@ -35,7 +36,9 @@ interface SessionState {
 }
 
 function tabTitle(type: SessionTab['type'], connName: string): string {
-  return type === 'sftp' ? 'SFTP' : connName
+  if (type === 'sftp') return 'SFTP'
+  if (type === 'docker') return 'Docker'
+  return connName
 }
 
 async function ensureSession(
@@ -130,6 +133,24 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     get().saveLayout()
   },
 
+  openDocker: async connectionId => {
+    const existed = get().tabs.find(t => t.connectionId === connectionId && t.type === 'docker')
+    if (existed) {
+      set({ activeTabId: existed.id })
+      return
+    }
+    const tabId = `${connectionId}-docker`
+    await ensureSession(get, set, connectionId)
+    set(s => {
+      if (s.tabs.some(t => t.id === tabId)) return {}
+      return {
+        tabs: [...s.tabs, { id: tabId, connectionId, type: 'docker', title: tabTitle('docker', '') }],
+        activeTabId: tabId,
+      }
+    })
+    get().saveLayout()
+  },
+
   closeTab: tabId => {
     const tab = get().tabs.find(t => t.id === tabId)
     if (!tab) return
@@ -181,12 +202,25 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     if (session?.sshSessionId) {
       window.api.sshDisconnect(session.sshSessionId)
     }
-    set(s => ({
-      connSessions: {
-        ...s.connSessions,
-        [connectionId]: { sshSessionId: null, info: null, status: 'closed' },
-      },
-    }))
+
+    // 关闭该连接下的所有标签（终端 / SFTP / Docker）
+    const allTabs = get().tabs
+    const remaining = allTabs.filter(t => t.connectionId !== connectionId)
+    const connSessions = { ...get().connSessions }
+    delete connSessions[connectionId]
+    const patch: Partial<SessionState> = {
+      tabs: remaining,
+      connSessions,
+    }
+
+    const activeTabId = get().activeTabId
+    if (activeTabId && allTabs.some(t => t.id === activeTabId && t.connectionId === connectionId)) {
+      const idx = allTabs.findIndex(t => t.id === activeTabId)
+      patch.activeTabId = remaining[Math.min(idx, remaining.length - 1)]?.id ?? null
+    }
+
+    set(patch)
+    get().saveLayout()
   },
 
   markClosed: connectionId => {
@@ -205,6 +239,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   restore: async (tabs, activeTabId) => {
     for (const tab of tabs) {
       if (tab.type === 'terminal') await get().openTerminal(tab.connectionId)
+      else if (tab.type === 'docker') await get().openDocker(tab.connectionId)
       else await get().openSftp(tab.connectionId)
     }
     if (activeTabId) set({ activeTabId })

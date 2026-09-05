@@ -34,6 +34,22 @@ const api: RendererApi = {
   sshResize: (sessionId, cols, rows) => ipcRenderer.invoke('ssh:resize', sessionId, cols, rows),
   sshDisconnect: sessionId => ipcRenderer.invoke('ssh:disconnect', sessionId),
   sshStats: sessionId => ipcRenderer.invoke('ssh:stats', sessionId),
+  sshExec: (sessionId, command) => ipcRenderer.invoke('ssh:exec', sessionId, command),
+  sshExecStream: (sessionId, command) =>
+    ipcRenderer.invoke('ssh:execStream', sessionId, command),
+  sshStreamKill: streamId => ipcRenderer.invoke('ssh:streamKill', streamId),
+  onSshStreamData: cb => {
+    const l = listener<[string, string, 'stdout' | 'stderr']>((id, data, kind) =>
+      cb(id, data, kind),
+    )
+    ipcRenderer.on('ssh:stream:data', l)
+    return () => ipcRenderer.off('ssh:stream:data', l)
+  },
+  onSshStreamClose: cb => {
+    const l = listener<[string, number]>((id, code) => cb(id, code))
+    ipcRenderer.on('ssh:stream:close', l)
+    return () => ipcRenderer.off('ssh:stream:close', l)
+  },
   onSshData: (sessionId, cb) => {
     const l = listener<[string, string]>((id, data) => {
       if (id === sessionId) cb(data)

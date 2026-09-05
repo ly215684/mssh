@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { Download, Power, Upload } from 'lucide-react'
+import { Container, Download, Power, Upload } from 'lucide-react'
 import type { SessionTab } from '../../../electron/shared/types'
 import { useConnStore } from '../../stores/connStore'
 import { useSessionStore } from '../../stores/sessionStore'
@@ -15,6 +15,7 @@ export function TerminalView({ tab }: { tab: SessionTab }) {
   const markClosed = useSessionStore(s => s.markClosed)
   const reconnect = useSessionStore(s => s.reconnect)
   const openSftp = useSessionStore(s => s.openSftp)
+  const openDocker = useSessionStore(s => s.openDocker)
   const disconnect = useSessionStore(s => s.disconnect)
 
   // SSH 会话退出事件 → 更新状态
@@ -41,6 +42,14 @@ export function TerminalView({ tab }: { tab: SessionTab }) {
           :{conn.port}
         </span>
         <div className="flex-1" />
+        <Tooltip label={t('term.docker')}>
+          <button
+            onClick={() => openDocker(tab.connectionId)}
+            className="size-7 flex items-center justify-center rounded-md text-dim hover:text-accent hover:bg-accent-dim transition-colors"
+          >
+            <Container size={15} />
+          </button>
+        </Tooltip>
         <Tooltip label={t('term.upload')}>
           <button
             onClick={() => openSftp(tab.connectionId)}

@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import fs from 'node:fs'
 import { StringDecoder } from 'node:string_decoder'
 import { BrowserWindow } from 'electron'
-import type { Connection, SshSessionInfo, SshSettings, SysStats } from '../shared/types'
+import type { Connection, ExecResult, SshSessionInfo, SshSettings, SysStats } from '../shared/types'
 
 export interface SshSession {
   id: string
@@ -200,22 +200,96 @@ export function exec(sessionId: string, command: string): Promise<string> {
     session.conn.exec(command, (err, stream) => {
       if (err) return reject(err)
       let out = ''
-      let errOut = ''
       const dec = new StringDecoder('utf8')
-      const errDec = new StringDecoder('utf8')
       stream.on('data', (d: Buffer) => {
         out += dec.write(d)
       })
-      stream.stderr.on('data', (d: Buffer) => {
-        errOut += errDec.write(d)
+      stream.stderr.on('data', () => {
+        // 该辅助函数仅消费 stdout，stderr 直接丢弃
       })
       stream.on('close', () => {
         out += dec.end()
-        errOut += errDec.end()
         resolve(out)
       })
     })
   })
+}
+
+/** 通过 SSH 执行一次性命令，返回完整结果（stdout/stderr/退出码） */
+export function execCommand(sessionId: string, command: string): Promise<ExecResult> {
+  return new Promise((resolve, reject) => {
+    const session = sessions.get(sessionId)
+    if (!session) return reject(new Error('SSH session not found'))
+    session.conn.exec(command, (err, stream) => {
+      if (err) return reject(err)
+      let stdout = ''
+      let stderr = ''
+      const dec = new StringDecoder('utf8')
+      const errDec = new StringDecoder('utf8')
+      stream.on('data', (d: Buffer) => {
+        stdout += dec.write(d)
+      })
+      stream.stderr.on('data', (d: Buffer) => {
+        stderr += errDec.write(d)
+      })
+      stream.on('close', (code: number | null) => {
+        stdout += dec.end()
+        stderr += errDec.end()
+        resolve({ code: code ?? 0, stdout, stderr })
+      })
+    })
+  })
+}
+
+/** 流式命令条目：长任务（docker logs -f / compose up）的通道 */
+interface StreamEntry {
+  channel: ClientChannel
+}
+const streams = new Map<string, StreamEntry>()
+
+/**
+ * 启动流式命令，返回 streamId。
+ * 输出通过 `ssh:stream:data` 事件广播（streamId, data, kind），
+ * 结束通过 `ssh:stream:close` 事件广播（streamId, code）。
+ */
+export function execStream(sessionId: string, command: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const session = sessions.get(sessionId)
+    if (!session) return reject(new Error('SSH session not found'))
+    session.conn.exec(command, (err, channel) => {
+      if (err) return reject(err)
+      const streamId = randomUUID()
+      const dec = new StringDecoder('utf8')
+      const errDec = new StringDecoder('utf8')
+      channel.on('data', (d: Buffer) => {
+        broadcast('ssh:stream:data', streamId, dec.write(d), 'stdout')
+      })
+      channel.stderr.on('data', (d: Buffer) => {
+        broadcast('ssh:stream:data', streamId, errDec.write(d), 'stderr')
+      })
+      channel.on('close', (code: number | null) => {
+        streams.delete(streamId)
+        const tail = dec.end()
+        if (tail) broadcast('ssh:stream:data', streamId, tail, 'stdout')
+        broadcast('ssh:stream:close', streamId, code ?? 0)
+      })
+      streams.set(streamId, { channel })
+      resolve(streamId)
+    })
+  })
+}
+
+/** 终止流式命令（关闭通道，远端进程收到 SIGHUP） */
+export function killStream(streamId: string) {
+  const entry = streams.get(streamId)
+  if (!entry) return
+  streams.delete(streamId)
+  try {
+    entry.channel.signal('TERM')
+  } catch {
+    // 部分服务器不支持 signal 请求，直接关闭通道即可
+  }
+  entry.channel.close()
 }
 
 /** 解析 /proc/stat 的 cpu 行，返回 [busy, total] */

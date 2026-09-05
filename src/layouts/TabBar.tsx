@@ -1,4 +1,4 @@
-import { Folder, Plus, SquareTerminal, X } from 'lucide-react'
+import { Container, Folder, Plus, SquareTerminal, X } from 'lucide-react'
 import { useSessionStore } from '../stores/sessionStore'
 import { useUiStore } from '../stores/uiStore'
 import { useT } from '../i18n/I18nProvider'
@@ -29,6 +29,8 @@ export function TabBar() {
           >
             {tab.type === 'terminal' ? (
               <SquareTerminal size={13} className="shrink-0" />
+            ) : tab.type === 'docker' ? (
+              <Container size={13} className="shrink-0" />
             ) : (
               <Folder size={13} className="shrink-0" />
             )}

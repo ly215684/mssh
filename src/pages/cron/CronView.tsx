@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useState,
   type MouseEvent as ReactMouseEvent,
 } from 'react'
@@ -22,6 +23,7 @@ import {
 import type { FileInfo, SessionTab } from '../../../electron/shared/types'
 import { useConnStore } from '../../stores/connStore'
 import { useSessionStore } from '../../stores/sessionStore'
+import { useAppStore } from '../../stores/appStore'
 import { useT } from '../../i18n/I18nProvider'
 import { parentPath } from '../../utils/files'
 import {
@@ -54,14 +56,130 @@ interface CronJob {
   enabled: boolean
 }
 
-/** 常用调度预设（key → cron 表达式） */
-const SCHEDULE_PRESETS: Record<string, string> = {
-  minutely: '* * * * *',
-  hourly: '@hourly',
-  daily: '@daily',
-  weekly: '@weekly',
-  monthly: '@monthly',
-  reboot: '@reboot',
+/** 执行周期类型（宝塔风格预设） */
+type CycleType =
+  | 'everyNMinutes'
+  | 'everyNHours'
+  | 'daily'
+  | 'weekly'
+  | 'monthly'
+  | 'yearly'
+  | 'reboot'
+  | 'custom'
+
+/** 周期表单参数 */
+interface CycleParams {
+  /** 每 N 分钟（1-59） */
+  nMin: number
+  /** 每 N 小时（1-23） */
+  nHour: number
+  /** 每 N 小时的第 M 分（0-59） */
+  hourMin: number
+  /** 时间：时（0-23） */
+  hh: number
+  /** 时间：分（0-59） */
+  mm: number
+  /** 星期几（0=周日，0-6） */
+  dow: number
+  /** 几号（1-31） */
+  dom: number
+  /** 几月（1-12） */
+  month: number
+}
+
+const DEFAULT_PARAMS: CycleParams = {
+  nMin: 5,
+  nHour: 1,
+  hourMin: 0,
+  hh: 0,
+  mm: 0,
+  dow: 0,
+  dom: 1,
+  month: 1,
+}
+
+const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v))
+const singleField = (s: string) => /^\d+$/.test(s)
+const stepField = (s: string) => /^\*\/(\d+)$/.exec(s)
+
+/** 将 cron 表达式解析为周期类型 + 表单参数；无法识别的表达式归为 custom */
+function parseSchedule(expr: string): { type: CycleType; params: CycleParams; custom: string } {
+  const p: CycleParams = { ...DEFAULT_PARAMS }
+  const v = expr.trim()
+
+  if (v === '@reboot') return { type: 'reboot', params: p, custom: v }
+  if (v === '@hourly') return { type: 'everyNHours', params: { ...p, nHour: 1, hourMin: 0 }, custom: v }
+  if (v === '@daily' || v === '@midnight') return { type: 'daily', params: p, custom: v }
+  if (v === '@weekly') return { type: 'weekly', params: p, custom: v }
+  if (v === '@monthly') return { type: 'monthly', params: p, custom: v }
+  if (v === '@yearly' || v === '@annually') return { type: 'yearly', params: p, custom: v }
+  if (v.startsWith('@')) return { type: 'custom', params: p, custom: v }
+
+  const f = v.split(/\s+/)
+  if (f.length !== 5) return { type: 'custom', params: p, custom: v }
+  const [minF, hourF, domF, monF, dowF] = f
+
+  // */N * * * * → 每 N 分钟
+  let m = stepField(minF)
+  if (m && hourF === '*' && domF === '*' && monF === '*' && dowF === '*') {
+    return { type: 'everyNMinutes', params: { ...p, nMin: clamp(+m[1], 1, 59) }, custom: v }
+  }
+  // M */N * * * → 每 N 小时的第 M 分
+  m = stepField(hourF)
+  if (m && singleField(minF) && domF === '*' && monF === '*' && dowF === '*') {
+    return {
+      type: 'everyNHours',
+      params: { ...p, nHour: clamp(+m[1], 1, 23), hourMin: clamp(+minF, 0, 59) },
+      custom: v,
+    }
+  }
+  if (!singleField(minF) || !singleField(hourF)) return { type: 'custom', params: p, custom: v }
+  const mmv = clamp(+minF, 0, 59)
+  const hhv = clamp(+hourF, 0, 23)
+
+  // M H D Mo * → 每年
+  if (singleField(monF) && singleField(domF) && dowF === '*') {
+    return {
+      type: 'yearly',
+      params: { ...p, hh: hhv, mm: mmv, month: clamp(+monF, 1, 12), dom: clamp(+domF, 1, 31) },
+      custom: v,
+    }
+  }
+  // M H D * * → 每月
+  if (monF === '*' && singleField(domF) && dowF === '*') {
+    return { type: 'monthly', params: { ...p, hh: hhv, mm: mmv, dom: clamp(+domF, 1, 31) }, custom: v }
+  }
+  // M H * * D → 每周（周日为 0 或 7）
+  if (monF === '*' && domF === '*' && singleField(dowF)) {
+    return { type: 'weekly', params: { ...p, hh: hhv, mm: mmv, dow: clamp(+dowF, 0, 7) % 7 }, custom: v }
+  }
+  // M H * * * → 每天
+  if (monF === '*' && domF === '*' && dowF === '*') {
+    return { type: 'daily', params: { ...p, hh: hhv, mm: mmv }, custom: v }
+  }
+  return { type: 'custom', params: p, custom: v }
+}
+
+/** 由周期类型 + 表单参数生成 cron 表达式 */
+function buildSchedule(type: CycleType, p: CycleParams, custom: string): string {
+  switch (type) {
+    case 'everyNMinutes':
+      return `*/${clamp(p.nMin, 1, 59)} * * * *`
+    case 'everyNHours':
+      return `${clamp(p.hourMin, 0, 59)} */${clamp(p.nHour, 1, 23)} * * *`
+    case 'daily':
+      return `${p.mm} ${p.hh} * * *`
+    case 'weekly':
+      return `${p.mm} ${p.hh} * * ${p.dow}`
+    case 'monthly':
+      return `${p.mm} ${p.hh} ${p.dom} * *`
+    case 'yearly':
+      return `${p.mm} ${p.hh} ${p.dom} ${p.month} *`
+    case 'reboot':
+      return '@reboot'
+    case 'custom':
+      return custom.trim()
+  }
 }
 
 /** 是否为合法的调度表达式（5 字段或 @特殊表达式） */
@@ -173,7 +291,8 @@ function parseCrontab(raw: string): { jobs: CronJob[]; lines: string[] } {
   return { jobs, lines }
 }
 
-/** 由任务列表 + 原始行重建 crontab 内容（新任务追加到末尾） */
+/** 由任务列表 + 原始行重建 crontab 内容（新任务追加到末尾）。
+ *  crontab 要求文件以换行符结尾，否则报 "missing newline before EOF"，故末尾补 \n */
 function serializeCrontab(lines: string[], nextJobs: CronJob[]): string {
   const out: string[] = []
   let i = 0
@@ -195,7 +314,8 @@ function serializeCrontab(lines: string[], nextJobs: CronJob[]): string {
     }
     out.push(`${j.schedule} ${j.command}`)
   }
-  return out.join('\n')
+  // crontab 要求末尾必须有换行；空内容（全部删除）也给一个换行以清空 crontab
+  return out.length ? `${out.join('\n')}\n` : '\n'
 }
 
 /** 写回 crontab：base64 编码规避引号/换行问题，写入后立即校验 */
@@ -582,9 +702,17 @@ function JobModal({
   onSave: (job: CronJob) => Promise<void>
 }) {
   const t = useT()
+  const lang = useAppStore(s => s.settings.language)
   const [comment, setComment] = useState(job.comment)
-  const [schedule, setSchedule] = useState(job.schedule)
   const [command, setCommand] = useState(job.command)
+  /** 周期表单：由现有表达式解析回填 */
+  const initialCycle = useMemo(() => parseSchedule(job.schedule), [job.schedule])
+  const [cycleType, setCycleType] = useState<CycleType>(initialCycle.type)
+  const [params, setParams] = useState<CycleParams>(initialCycle.params)
+  const [customExpr, setCustomExpr] = useState(initialCycle.custom)
+  const setP = (patch: Partial<CycleParams>) => setParams(p => ({ ...p, ...patch }))
+  /** 由当前表单实时生成的 cron 表达式 */
+  const schedule = buildSchedule(cycleType, params, customExpr)
   const [phase, setPhase] = useState<'edit' | 'pick'>('edit')
   const [cwd, setCwd] = useState('')
   const [entries, setEntries] = useState<FileInfo[]>([])
@@ -592,17 +720,47 @@ function JobModal({
   const [selected, setSelected] = useState<string | null>(null)
   const [pathInput, setPathInput] = useState('')
 
-  /** 预设值：当前表达式匹配则高亮，否则为 custom */
-  const presetValue =
-    Object.entries(SCHEDULE_PRESETS).find(([, v]) => v === schedule.trim())?.[0] ?? 'custom'
+  /** 周期类型选项 */
+  const typeOptions = useMemo(
+    () => [
+      { value: 'everyNMinutes', label: t('cron.typeNMin') },
+      { value: 'everyNHours', label: t('cron.typeNHour') },
+      { value: 'daily', label: t('cron.typeDaily') },
+      { value: 'weekly', label: t('cron.typeWeekly') },
+      { value: 'monthly', label: t('cron.typeMonthly') },
+      { value: 'yearly', label: t('cron.typeYearly') },
+      { value: 'reboot', label: t('cron.typeReboot') },
+      { value: 'custom', label: t('cron.typeCustom') },
+    ],
+    [t],
+  )
 
-  /** 应用预设（自定义时不改动表达式） */
-  const applyPreset = (v: string) => {
-    if (v !== 'custom') setSchedule(SCHEDULE_PRESETS[v])
-  }
+  /** 星期选项（0=周日） */
+  const weekdayOptions = useMemo(() => {
+    const names =
+      lang === 'zh-CN'
+        ? ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
+        : ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+    return names.map((label, i) => ({ value: String(i), label }))
+  }, [lang])
+
+  /** 月份选项 */
+  const monthOptions = useMemo(() => {
+    const en = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+    return Array.from({ length: 12 }, (_, i) => ({
+      value: String(i + 1),
+      label: lang === 'zh-CN' ? `${i + 1}月` : en[i],
+    }))
+  }, [lang])
+
+  /** 日期选项（1-31） */
+  const domOptions = useMemo(
+    () => Array.from({ length: 31 }, (_, i) => ({ value: String(i + 1), label: String(i + 1) })),
+    [],
+  )
 
   const submit = async () => {
-    if (!validSchedule(schedule)) {
+    if (cycleType === 'custom' && !validSchedule(customExpr)) {
       await errorAlert(t('cron.errScheduleTitle'), t('cron.errSchedule'))
       return
     }
@@ -793,27 +951,142 @@ function JobModal({
           </div>
           <div>
             <div className="text-xs text-dim mb-1.5">{t('cron.schedule')}</div>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
               <div className="w-36 shrink-0">
-                <Select value={presetValue} onChange={applyPreset} options={[
-                  { value: 'minutely', label: t('cron.presetMinutely') },
-                  { value: 'hourly', label: t('cron.presetHourly') },
-                  { value: 'daily', label: t('cron.presetDaily') },
-                  { value: 'weekly', label: t('cron.presetWeekly') },
-                  { value: 'monthly', label: t('cron.presetMonthly') },
-                  { value: 'reboot', label: t('cron.presetReboot') },
-                  { value: 'custom', label: t('cron.presetCustom') },
-                ]} />
+                <Select
+                  value={cycleType}
+                  onChange={v => setCycleType(v as CycleType)}
+                  options={typeOptions}
+                />
               </div>
-              <Input
-                value={schedule}
-                onChange={e => setSchedule(e.target.value)}
-                placeholder={t('cron.schedulePh')}
-                spellCheck={false}
-                className="font-mono flex-1"
-              />
+
+              {cycleType === 'everyNMinutes' && (
+                <span className="inline-flex items-center gap-1.5 text-[13px] text-dim">
+                  {t('cron.segEvery')}
+                  <NumInput
+                    value={params.nMin}
+                    min={1}
+                    max={59}
+                    onChange={v => setP({ nMin: v })}
+                  />
+                  {t('cron.uMinutes')}
+                </span>
+              )}
+
+              {cycleType === 'everyNHours' && (
+                <span className="inline-flex items-center gap-1.5 text-[13px] text-dim">
+                  {t('cron.segEvery')}
+                  <NumInput
+                    value={params.nHour}
+                    min={1}
+                    max={23}
+                    onChange={v => setP({ nHour: v })}
+                  />
+                  {t('cron.uHours')}
+                  {t('cron.segAtMinute')}
+                  <NumInput
+                    value={params.hourMin}
+                    min={0}
+                    max={59}
+                    onChange={v => setP({ hourMin: v })}
+                  />
+                  {t('cron.segMinSuffix')}
+                </span>
+              )}
+
+              {cycleType === 'daily' && (
+                <span className="inline-flex items-center gap-1.5 text-[13px] text-dim">
+                  {t('cron.segDaily')}
+                  <TimeSelect
+                    hh={params.hh}
+                    mm={params.mm}
+                    onChange={(hh, mm) => setP({ hh, mm })}
+                  />
+                </span>
+              )}
+
+              {cycleType === 'weekly' && (
+                <span className="inline-flex items-center gap-1.5 text-[13px] text-dim">
+                  {t('cron.segWeekly')}
+                  <span className="w-28">
+                    <Select
+                      value={String(params.dow)}
+                      onChange={v => setP({ dow: +v })}
+                      options={weekdayOptions}
+                    />
+                  </span>
+                  <TimeSelect
+                    hh={params.hh}
+                    mm={params.mm}
+                    onChange={(hh, mm) => setP({ hh, mm })}
+                  />
+                </span>
+              )}
+
+              {cycleType === 'monthly' && (
+                <span className="inline-flex items-center gap-1.5 text-[13px] text-dim">
+                  {t('cron.segMonthly')}
+                  <span className="w-[76px]">
+                    <Select
+                      value={String(params.dom)}
+                      onChange={v => setP({ dom: +v })}
+                      options={domOptions}
+                    />
+                  </span>
+                  {t('cron.segDaySuffix')}
+                  <TimeSelect
+                    hh={params.hh}
+                    mm={params.mm}
+                    onChange={(hh, mm) => setP({ hh, mm })}
+                  />
+                </span>
+              )}
+
+              {cycleType === 'yearly' && (
+                <span className="inline-flex items-center gap-1.5 text-[13px] text-dim">
+                  {t('cron.segYearly')}
+                  <span className="w-20">
+                    <Select
+                      value={String(params.month)}
+                      onChange={v => setP({ month: +v })}
+                      options={monthOptions}
+                    />
+                  </span>
+                  <span className="w-[76px]">
+                    <Select
+                      value={String(params.dom)}
+                      onChange={v => setP({ dom: +v })}
+                      options={domOptions}
+                    />
+                  </span>
+                  {t('cron.segDaySuffix')}
+                  <TimeSelect
+                    hh={params.hh}
+                    mm={params.mm}
+                    onChange={(hh, mm) => setP({ hh, mm })}
+                  />
+                </span>
+              )}
+
+              {cycleType === 'reboot' && (
+                <span className="text-xs text-faint">{t('cron.rebootHint')}</span>
+              )}
+
+              {cycleType === 'custom' && (
+                <Input
+                  value={customExpr}
+                  onChange={e => setCustomExpr(e.target.value)}
+                  placeholder={t('cron.schedulePh')}
+                  spellCheck={false}
+                  className="font-mono flex-1 min-w-[240px]"
+                />
+              )}
             </div>
-            <div className="text-[11px] text-faint mt-1.5">{t('cron.scheduleHint')}</div>
+            {cycleType === 'custom' ? (
+              <div className="text-[11px] text-faint mt-1.5">{t('cron.scheduleHint')}</div>
+            ) : cycleType !== 'reboot' ? (
+              <div className="text-[11px] text-faint mt-1.5 font-mono">cron: {schedule}</div>
+            ) : null}
           </div>
           <div>
             <div className="flex items-center justify-between mb-1.5">
@@ -839,5 +1112,63 @@ function JobModal({
         </div>
       )}
     </Modal>
+  )
+}
+
+/** 小数字输入框（分钟 / 小时间隔等），自动夹紧到 min-max 并隐藏原生步进按钮 */
+function NumInput({
+  value,
+  min,
+  max,
+  onChange,
+}: {
+  value: number
+  min: number
+  max: number
+  onChange: (v: number) => void
+}) {
+  return (
+    <input
+      type="number"
+      min={min}
+      max={max}
+      value={value}
+      onChange={e => {
+        const n = parseInt(e.target.value, 10)
+        if (!Number.isNaN(n)) onChange(clamp(n, min, max))
+      }}
+      className="w-[72px] h-8 px-2 rounded-md bg-input border border-bd text-[13px] text-fg outline-none focus:border-accent hover:border-bd-strong transition-colors [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+    />
+  )
+}
+
+/** 时:分 下拉选择器 */
+function TimeSelect({
+  hh,
+  mm,
+  onChange,
+}: {
+  hh: number
+  mm: number
+  onChange: (hh: number, mm: number) => void
+}) {
+  const hours = Array.from({ length: 24 }, (_, i) => ({
+    value: String(i),
+    label: String(i).padStart(2, '0'),
+  }))
+  const mins = Array.from({ length: 60 }, (_, i) => ({
+    value: String(i),
+    label: String(i).padStart(2, '0'),
+  }))
+  return (
+    <span className="inline-flex items-center gap-1">
+      <span className="w-[68px]">
+        <Select value={String(hh)} onChange={v => onChange(+v, mm)} options={hours} />
+      </span>
+      <span className="text-dim text-[13px]">:</span>
+      <span className="w-[68px]">
+        <Select value={String(mm)} onChange={v => onChange(hh, +v)} options={mins} />
+      </span>
+    </span>
   )
 }

@@ -147,6 +147,8 @@ export const FilePane = forwardRef<PaneHandle, FilePaneProps>(function FilePane(
   const [touchValue, setTouchValue] = useState('')
   const [dragOver, setDragOver] = useState(false)
   const [editorPath, setEditorPath] = useState<string | null>(null)
+  /** 进行中的文件操作文案（删除/新建/解压等），用于遮罩反馈 */
+  const [opLabel, setOpLabel] = useState<string | null>(null)
 
   const dirRef = useRef('')
   const nonceRef = useRef(0)
@@ -166,6 +168,16 @@ export const FilePane = forwardRef<PaneHandle, FilePaneProps>(function FilePane(
   const refresh = useCallback(() => {
     nonceRef.current += 1
     force(n => n + 1)
+  }, [])
+
+  /** 执行文件操作：期间显示遮罩动画，完成/失败后关闭 */
+  const runOp = useCallback(async (label: string, fn: () => Promise<void>) => {
+    setOpLabel(label)
+    try {
+      await fn()
+    } finally {
+      setOpLabel(null)
+    }
   }, [])
 
   /** 跳转到系统桌面目录 */
@@ -283,18 +295,20 @@ export const FilePane = forwardRef<PaneHandle, FilePaneProps>(function FilePane(
         danger: true,
       })
       if (!ok) return
-      try {
-        for (const n of targets) {
-          const p = joinPath(dirRef.current, n)
-          if (isRemote && sessionId) await window.api.sftpRm(sessionId, p)
-          else if (!isRemote) await window.api.localRm(p)
+      await runOp(t('sftp.opDeleting'), async () => {
+        try {
+          for (const n of targets) {
+            const p = joinPath(dirRef.current, n)
+            if (isRemote && sessionId) await window.api.sftpRm(sessionId, p)
+            else if (!isRemote) await window.api.localRm(p)
+          }
+        } catch (e) {
+          void errorAlert(getGlobalT()('sftp.opFailed'), e)
         }
-      } catch (e) {
-        void errorAlert(getGlobalT()('sftp.opFailed'), e)
-      }
-      refresh()
+        refresh()
+      })
     },
-    [selected, isRemote, sessionId, t, refresh],
+    [selected, isRemote, sessionId, t, refresh, runOp],
   )
 
   const commitRename = useCallback(async () => {
@@ -306,16 +320,20 @@ export const FilePane = forwardRef<PaneHandle, FilePaneProps>(function FilePane(
     try {
       if (newName && newName !== renaming) {
         const to = joinPath(dirRef.current, newName)
-        if (isRemote && sessionId) await window.api.sftpRename(sessionId, from, to)
-        else if (!isRemote) await window.api.localRename(from, to)
-        refresh()
+        await runOp(t('sftp.opRenaming'), async () => {
+          try {
+            if (isRemote && sessionId) await window.api.sftpRename(sessionId, from, to)
+            else if (!isRemote) await window.api.localRename(from, to)
+            refresh()
+          } catch (e) {
+            void errorAlert(getGlobalT()('sftp.opFailed'), e)
+          }
+        })
       }
-    } catch (e) {
-      void errorAlert(getGlobalT()('sftp.opFailed'), e)
     } finally {
       renameBusy.current = false
     }
-  }, [renaming, renameValue, isRemote, sessionId, refresh])
+  }, [renaming, renameValue, isRemote, sessionId, refresh, runOp, t])
 
   const commitMkdir = useCallback(async () => {
     if (mkdirBusy.current) return
@@ -325,16 +343,20 @@ export const FilePane = forwardRef<PaneHandle, FilePaneProps>(function FilePane(
     try {
       if (name) {
         const target = joinPath(dirRef.current, name)
-        if (isRemote && sessionId) await window.api.sftpMkdir(sessionId, target)
-        else if (!isRemote) await window.api.localMkdir(target)
-        refresh()
+        await runOp(t('sftp.opCreatingFolder'), async () => {
+          try {
+            if (isRemote && sessionId) await window.api.sftpMkdir(sessionId, target)
+            else if (!isRemote) await window.api.localMkdir(target)
+            refresh()
+          } catch (e) {
+            void errorAlert(getGlobalT()('sftp.opFailed'), e)
+          }
+        })
       }
-    } catch (e) {
-      void errorAlert(getGlobalT()('sftp.opFailed'), e)
     } finally {
       mkdirBusy.current = false
     }
-  }, [mkdirValue, isRemote, sessionId, refresh])
+  }, [mkdirValue, isRemote, sessionId, refresh, runOp, t])
 
   const commitTouch = useCallback(async () => {
     if (touchBusyRef.current) return
@@ -344,29 +366,35 @@ export const FilePane = forwardRef<PaneHandle, FilePaneProps>(function FilePane(
     try {
       if (name) {
         const target = joinPath(dirRef.current, name)
-        if (isRemote && sessionId) await window.api.sftpTouch(sessionId, target)
-        else if (!isRemote) await window.api.localTouch(target)
-        refresh()
+        await runOp(t('sftp.opCreatingFile'), async () => {
+          try {
+            if (isRemote && sessionId) await window.api.sftpTouch(sessionId, target)
+            else if (!isRemote) await window.api.localTouch(target)
+            refresh()
+          } catch (e) {
+            void errorAlert(getGlobalT()('sftp.opFailed'), e)
+          }
+        })
       }
-    } catch (e) {
-      void errorAlert(getGlobalT()('sftp.opFailed'), e)
     } finally {
       touchBusyRef.current = false
     }
-  }, [touchValue, isRemote, sessionId, refresh])
+  }, [touchValue, isRemote, sessionId, refresh, runOp, t])
 
   const doExtract = useCallback(
     async (f: FileInfo) => {
       if (f.isDir || !isArchive(f.name)) return
-      try {
-        if (isRemote && sessionId) await window.api.sftpExtract(sessionId, f.path)
-        else if (!isRemote) await window.api.localExtract(f.path)
-        refresh()
-      } catch (e) {
-        void errorAlert(getGlobalT()('sftp.opFailed'), e)
-      }
+      await runOp(t('sftp.opExtracting', { name: f.name }), async () => {
+        try {
+          if (isRemote && sessionId) await window.api.sftpExtract(sessionId, f.path)
+          else if (!isRemote) await window.api.localExtract(f.path)
+          refresh()
+        } catch (e) {
+          void errorAlert(getGlobalT()('sftp.opFailed'), e)
+        }
+      })
     },
-    [isRemote, sessionId, refresh],
+    [isRemote, sessionId, refresh, runOp, t],
   )
 
   // ---------- 右键菜单 ----------
@@ -467,6 +495,7 @@ export const FilePane = forwardRef<PaneHandle, FilePaneProps>(function FilePane(
   }
   const gridCols = 'grid grid-cols-[minmax(0,1fr)_72px_128px] gap-2'
   const canTransfer = selected.size > 0
+  const busy = opLabel !== null
 
   return (
     <div
@@ -516,27 +545,27 @@ export const FilePane = forwardRef<PaneHandle, FilePaneProps>(function FilePane(
             </button>
           ))}
         </div>
-        <IconBtn label={t('common.refresh')} onClick={refresh}>
+        <IconBtn label={t('common.refresh')} onClick={refresh} disabled={busy}>
           <RefreshCw size={14} />
         </IconBtn>
-        <IconBtn label={t('ctx.mkdir')} onClick={() => { setMkdirValue(''); setMkdirOpen(true) }}>
+        <IconBtn label={t('ctx.mkdir')} disabled={busy} onClick={() => { setMkdirValue(''); setMkdirOpen(true) }}>
           <FolderPlus size={14} />
         </IconBtn>
-        <IconBtn label={t('ctx.touch')} onClick={() => { setTouchValue(''); setTouchOpen(true) }}>
+        <IconBtn label={t('ctx.touch')} disabled={busy} onClick={() => { setTouchValue(''); setTouchOpen(true) }}>
           <FilePlus size={14} />
         </IconBtn>
-        <IconBtn label={t('common.rename')} disabled={selected.size !== 1} onClick={() => {
+        <IconBtn label={t('common.rename')} disabled={busy || selected.size !== 1} onClick={() => {
           const name = [...selected][0]
           if (name) { setRenameValue(name); setRenaming(name) }
         }}>
           <Pencil size={14} />
         </IconBtn>
-        <IconBtn label={t('common.delete')} danger disabled={!canTransfer} onClick={() => void doDelete()}>
+        <IconBtn label={t('common.delete')} danger disabled={busy || !canTransfer} onClick={() => void doDelete()}>
           <Trash2 size={14} />
         </IconBtn>
         <IconBtn
           label={t(isRemote ? 'ctx.download' : 'ctx.upload')}
-          disabled={!canTransfer}
+          disabled={busy || !canTransfer}
           onClick={() => onTransfer(side, selPaths())}
         >
           {isRemote ? <Download size={14} /> : <Upload size={14} />}
@@ -544,7 +573,7 @@ export const FilePane = forwardRef<PaneHandle, FilePaneProps>(function FilePane(
         {isRemote && (
           <IconBtn
             label={t('ctx.edit')}
-            disabled={selected.size !== 1 || (entries?.find(e => e.name === [...selected][0])?.isDir ?? true)}
+            disabled={busy || selected.size !== 1 || (entries?.find(e => e.name === [...selected][0])?.isDir ?? true)}
             onClick={() => {
               const name = [...selected][0]
               if (name) setEditorPath(joinPath(dirRef.current, name))
@@ -709,9 +738,10 @@ export const FilePane = forwardRef<PaneHandle, FilePaneProps>(function FilePane(
           <Empty text={t('common.empty')} className="py-10" />
         )}
 
-        {loading && (
-          <div className="absolute inset-0 bg-bg/50 flex items-center justify-center z-10">
+        {(loading || opLabel) && (
+          <div className="absolute inset-0 bg-bg/50 flex flex-col items-center justify-center gap-2 z-10">
             <Spinner size={20} />
+            {opLabel && <div className="text-xs text-dim">{opLabel}</div>}
           </div>
         )}
       </div>

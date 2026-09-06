@@ -49,15 +49,24 @@ export function SftpView({ tab }: { tab: SessionTab }) {
   const doUpload = (paths: string[]) => {
     const target = remoteRef.current?.getDir()
     if (!sessionId || !target || !paths.length) return
-    setExpanded(true)
-    window.api.sftpUpload(sessionId, paths, target).catch(e => void errorAlert(t('sftp.uploadFailed'), e))
+    window.api
+      .sftpUpload(sessionId, paths, target)
+      .then(ids => {
+        // 用户取消上传或全部跳过时不展开传输面板
+        if (ids.length) setExpanded(true)
+      })
+      .catch(e => void errorAlert(t('sftp.uploadFailed'), e))
   }
 
   const doDownload = (paths: string[]) => {
     const target = localRef.current?.getDir()
     if (!sessionId || !target || !paths.length) return
-    setExpanded(true)
-    window.api.sftpDownload(sessionId, paths, target).catch(e => void errorAlert(t('sftp.downloadFailed'), e))
+    window.api
+      .sftpDownload(sessionId, paths, target)
+      .then(ids => {
+        if (ids.length) setExpanded(true)
+      })
+      .catch(e => void errorAlert(t('sftp.downloadFailed'), e))
   }
 
   /** 来源侧 → 目标动作 */

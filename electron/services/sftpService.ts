@@ -2,7 +2,7 @@ import type { SFTPWrapper } from 'ssh2'
 import { randomUUID } from 'node:crypto'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
-import { BrowserWindow } from 'electron'
+import { BrowserWindow, dialog } from 'electron'
 import type { FileInfo, TransferItem } from '../shared/types'
 import { getAll } from './configStore'
 import { exec, getSession, onSessionClosed, type SshSession } from './sshService'
@@ -331,14 +331,103 @@ function newCtl(sessionId: string): TransferCtl {
   return { sessionId, cancelled: false, lastProgress: Date.now(), abort: null }
 }
 
-/** 上传：支持文件与目录（递归），同一会话内串行执行 */
+/** 生成远程不冲突的名称：name.ext → name (1).ext 递增 */
+async function uniqueRemoteName(sftp: SFTPWrapper, dir: string, name: string): Promise<string> {
+  const dot = name.lastIndexOf('.')
+  const base = dot > 0 ? name.slice(0, dot) : name
+  const ext = dot > 0 ? name.slice(dot) : ''
+  for (let i = 1; i < 1000; i++) {
+    const candidate = `${base} (${i})${ext}`
+    if (!(await remoteExists(sftp, joinRemote(dir, candidate)))) return candidate
+  }
+  return `${base} (${Date.now()})${ext}`
+}
+
+/** 上传冲突处理动作 */
+type ConflictAction = 'overwrite' | 'rename' | 'skip'
+
+/** 冲突询问结果：'cancel' 表示放弃整批传输 */
+type ConflictResult = { action: ConflictAction; applyAll: boolean } | 'cancel'
+
+/** 同名冲突询问弹窗（覆盖/重命名/跳过/取消），文案跟随应用语言 */
+async function askConflict(target: 'remote' | 'local', name: string, dir: string, showCheckbox: boolean): Promise<ConflictResult> {
+  const zh = getAll().settings.language !== 'en-US'
+  const where = target === 'remote'
+    ? (zh ? `远程已存在同名文件「${name}」` : `Remote already has "${name}"`)
+    : (zh ? `本地已存在同名文件「${name}」` : `Local file already exists: "${name}"`)
+  const parent = BrowserWindow.getAllWindows()[0]
+  const opts = {
+    type: 'warning' as const,
+    message: where,
+    detail: (zh ? '目标目录：' : 'Target directory: ') + dir,
+    buttons: [
+      zh ? '覆盖' : 'Overwrite',
+      zh ? '重命名' : 'Rename',
+      zh ? '跳过' : 'Skip',
+      zh ? '取消传输' : 'Cancel transfer',
+    ],
+    defaultId: 0,
+    cancelId: 3,
+    noLink: true,
+    ...(showCheckbox ? { checkboxLabel: zh ? '对本批所有同名文件应用此选择' : 'Apply this choice to all conflicts in this batch' } : {}),
+  }
+  const r = parent && !parent.isDestroyed() ? await dialog.showMessageBox(parent, opts) : await dialog.showMessageBox(opts)
+  if (r.response === 3) return 'cancel'
+  return { action: (['overwrite', 'rename', 'skip'] as const)[r.response], applyAll: r.checkboxChecked }
+}
+
+async function localExists(p: string): Promise<boolean> {
+  try {
+    await fsp.access(p)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** 生成本地不冲突的名称：name.ext → name (1).ext 递增 */
+async function uniqueLocalName(dir: string, name: string): Promise<string> {
+  const dot = name.lastIndexOf('.')
+  const base = dot > 0 ? name.slice(0, dot) : name
+  const ext = dot > 0 ? name.slice(dot) : ''
+  for (let i = 1; i < 1000; i++) {
+    const candidate = `${base} (${i})${ext}`
+    if (!(await localExists(path.join(dir, candidate)))) return candidate
+  }
+  return `${base} (${Date.now()})${ext}`
+}
+
+/** 上传：支持文件与目录（递归），同一会话内串行执行；同名文件询问覆盖/重命名/跳过 */
 export async function upload(sessionId: string, localPaths: string[], remoteDir: string): Promise<string[]> {
   const session = asSession(sessionId)
   if (!session) throw new Error('SSH 会话不存在或已断开')
-  await getSftp(sessionId)
+  const sftp = await getSftp(sessionId)
+
+  // ---------- 同名冲突处理 ----------
+  let unify: ConflictAction | null = null
+  const planned: { localPath: string; remoteName: string }[] = []
+
+  for (const lp of localPaths) {
+    const original = path.basename(lp)
+    let remoteName = original
+    if (await remoteExists(sftp, joinRemote(remoteDir, original))) {
+      let action: ConflictAction | null = unify
+      if (!action) {
+        const r = await askConflict('remote', original, remoteDir, localPaths.length > 1)
+        if (r === 'cancel') return [] // 用户取消整个上传
+        action = r.action
+        if (r.applyAll) unify = action
+      }
+      if (action === 'skip') continue
+      if (action === 'rename') remoteName = await uniqueRemoteName(sftp, remoteDir, original)
+    }
+    planned.push({ localPath: lp, remoteName })
+  }
+
+  if (!planned.length) return []
 
   const ids: string[] = []
-  for (const lp of localPaths) {
+  for (const { localPath: lp, remoteName } of planned) {
     const id = randomUUID()
     const size = await calcLocalTotalSize(lp).catch(() => 0)
     transfers.set(id, {
@@ -346,8 +435,8 @@ export async function upload(sessionId: string, localPaths: string[], remoteDir:
       direction: 'upload',
       connectionId: session.connCfg.id,
       localPath: lp,
-      remotePath: joinRemote(remoteDir, path.basename(lp)),
-      name: path.basename(lp),
+      remotePath: joinRemote(remoteDir, remoteName),
+      name: remoteName,
       size,
       transferred: 0,
       status: 'pending',
@@ -362,23 +451,46 @@ export async function upload(sessionId: string, localPaths: string[], remoteDir:
   return ids
 }
 
-/** 下载：支持文件与目录（递归） */
+/** 下载：支持文件与目录（递归），同一会话内串行执行；本地同名文件询问覆盖/重命名/跳过 */
 export async function download(sessionId: string, remotePaths: string[], localDir: string): Promise<string[]> {
   const session = asSession(sessionId)
   if (!session) throw new Error('SSH 会话不存在或已断开')
   const sftp = await getSftp(sessionId)
 
-  const ids: string[] = []
+  // ---------- 本地同名冲突处理 ----------
+  let unify: ConflictAction | null = null
+  const planned: { remotePath: string; localName: string }[] = []
+
   for (const rp of remotePaths) {
+    const original = basenameRemote(rp)
+    let localName = original
+    if (await localExists(path.join(localDir, original))) {
+      let action: ConflictAction | null = unify
+      if (!action) {
+        const r = await askConflict('local', original, localDir, remotePaths.length > 1)
+        if (r === 'cancel') return [] // 用户取消整个下载
+        action = r.action
+        if (r.applyAll) unify = action
+      }
+      if (action === 'skip') continue
+      if (action === 'rename') localName = await uniqueLocalName(localDir, original)
+    }
+    planned.push({ remotePath: rp, localName })
+  }
+
+  if (!planned.length) return []
+
+  const ids: string[] = []
+  for (const { remotePath: rp, localName } of planned) {
     const id = randomUUID()
     const size = await calcRemoteTotalSize(sftp, rp).catch(() => 0)
     transfers.set(id, {
       id,
       direction: 'download',
       connectionId: session.connCfg.id,
-      localPath: path.join(localDir, basenameRemote(rp)),
+      localPath: path.join(localDir, localName),
       remotePath: rp,
-      name: basenameRemote(rp),
+      name: localName,
       size,
       transferred: 0,
       status: 'pending',

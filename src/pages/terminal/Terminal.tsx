@@ -117,6 +117,8 @@ export function Term({ sessionId }: TermProps) {
       // term.paste 自动处理 bracketed paste mode：shell 启用时多行内容
       // 整体插入（不逐行执行，等用户回车确认）；未启用时直接发送
       term.paste(normalized)
+      // 右键菜单粘贴后焦点仍停在菜单/页面上，回归终端以便直接输入
+      term.focus()
     }
 
     // Ctrl+Shift+V (Win/Linux) / Cmd+V (macOS) 粘贴

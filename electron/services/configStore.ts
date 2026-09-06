@@ -67,7 +67,13 @@ function readConfig(): StoredConfig {
     const raw = fs.readFileSync(CONFIG_FILE, 'utf8')
     const parsed = JSON.parse(raw) as Partial<StoredConfig>
     return {
-      settings: { ...DEFAULT_SETTINGS, ...parsed.settings },
+      // 嵌套对象需与默认值合并，保证旧配置升级后新增字段有默认值
+      settings: {
+        ...DEFAULT_SETTINGS,
+        ...parsed.settings,
+        terminal: { ...DEFAULT_SETTINGS.terminal, ...parsed.settings?.terminal },
+        ssh: { ...DEFAULT_SETTINGS.ssh, ...parsed.settings?.ssh },
+      },
       connections: parsed.connections ?? [],
       groups: parsed.groups ?? [],
     }

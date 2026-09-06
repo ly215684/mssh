@@ -1,4 +1,5 @@
-import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, X } from 'lucide-react'
+import { useEffect, useRef } from 'react'
+import { ArrowDown, ArrowUp, ChevronDown, ChevronUp, X } from 'lucide-react'
 import type { TransferStatus } from '../../../electron/shared/types'
 import { useT } from '../../i18n/I18nProvider'
 import { Progress, Tooltip } from '../../components/ui'
@@ -13,57 +14,39 @@ const STATUS_INFO: Record<TransferStatus, { key: 'sftp.pending' | 'sftp.active' 
   cancelled: { key: 'sftp.cancelled', cls: 'text-faint' },
 }
 
-/** 底部传输队列面板 */
+/** 底部传输队列条：点击向上弹出传输进度列表 */
 export function TransferPanel() {
   const t = useT()
   const items = useTransferStore(s => s.items)
   const expanded = useTransferStore(s => s.expanded)
   const setExpanded = useTransferStore(s => s.setExpanded)
   const clearFinished = useTransferStore(s => s.clearFinished)
+  const rootRef = useRef<HTMLDivElement>(null)
+
+  // 点击面板外部关闭弹出列表
+  useEffect(() => {
+    if (!expanded) return
+    const onDown = (e: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setExpanded(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [expanded, setExpanded])
 
   if (!items.length) return null
 
   const { activeCount, speed } = queueSummary(items)
   const finishedCount = items.length - activeCount
+  const activeItems = items.filter(i => i.status === 'active' || i.status === 'pending')
+  const totalBytes = activeItems.reduce((a, i) => a + i.size, 0)
+  const doneBytes = activeItems.reduce((a, i) => a + i.transferred, 0)
+  const overallPct = totalBytes ? Math.min(100, Math.round((doneBytes / totalBytes) * 100)) : 0
 
   return (
-    <div className="border-t border-bd bg-bg shrink-0">
-      <div
-        onClick={() => setExpanded(!expanded)}
-        className="flex items-center gap-2 h-8 px-3 text-xs cursor-pointer hover:bg-hover/50 transition-colors"
-      >
-        {expanded ? (
-          <ChevronDown size={14} className="text-dim" />
-        ) : (
-          <ChevronRight size={14} className="text-dim" />
-        )}
-        <span className="text-fg">{t('sftp.queue')}</span>
-        {activeCount > 0 ? (
-          <span className="text-accent">
-            {t('sftp.active')} · {formatSpeed(speed)}
-          </span>
-        ) : (
-          <span className="text-dim">{t('sftp.idle')}</span>
-        )}
-        <div className="flex-1" />
-        {finishedCount > 0 && (
-          <Tooltip label={t('sftp.clearFinished')}>
-            <button
-              type="button"
-              onClick={e => {
-                e.stopPropagation()
-                clearFinished()
-              }}
-              className="size-6 flex items-center justify-center rounded text-dim hover:text-fg hover:bg-hover transition-colors"
-            >
-              <X size={13} />
-            </button>
-          </Tooltip>
-        )}
-      </div>
-
+    <div ref={rootRef} className="relative border-t border-bd bg-bg shrink-0">
+      {/* 弹出的传输进度列表 */}
       {expanded && (
-        <div className="max-h-52 overflow-y-auto border-t border-bd/60">
+        <div className="absolute bottom-full left-0 right-0 z-30 max-h-64 overflow-y-auto border-t border-bd bg-bg shadow-lg shadow-black/20">
           {items.map(item => {
             const pct = item.size ? Math.round((item.transferred / item.size) * 100) : 0
             const info = STATUS_INFO[item.status]
@@ -98,6 +81,49 @@ export function TransferPanel() {
           })}
         </div>
       )}
+
+      {/* 底部状态条 */}
+      <div
+        onClick={() => setExpanded(!expanded)}
+        className="flex items-center gap-2 h-8 px-3 text-xs cursor-pointer hover:bg-hover/50 transition-colors"
+      >
+        {expanded ? (
+          <ChevronDown size={14} className="text-dim" />
+        ) : (
+          <ChevronUp size={14} className="text-dim" />
+        )}
+        <span className="text-fg shrink-0">{t('sftp.queue')}</span>
+        {activeCount > 0 ? (
+          <span className="text-accent shrink-0">
+            {t('sftp.active')} · {formatSpeed(speed)}
+          </span>
+        ) : (
+          <span className="text-dim">{t('sftp.idle')}</span>
+        )}
+        {activeCount > 0 && (
+          <span className="flex-1 min-w-0 mx-1" title={`${overallPct}%`}>
+            <Progress value={overallPct} />
+          </span>
+        )}
+        <div className={activeCount > 0 ? 'shrink-0' : 'flex-1'} />
+        {activeCount > 0 && (
+          <span className="text-dim mono shrink-0">{overallPct}%</span>
+        )}
+        {finishedCount > 0 && (
+          <Tooltip label={t('sftp.clearFinished')}>
+            <button
+              type="button"
+              onClick={e => {
+                e.stopPropagation()
+                clearFinished()
+              }}
+              className="size-6 flex items-center justify-center rounded text-dim hover:text-fg hover:bg-hover transition-colors"
+            >
+              <X size={13} />
+            </button>
+          </Tooltip>
+        )}
+      </div>
     </div>
   )
 }

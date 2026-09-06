@@ -88,6 +88,8 @@ export default {
   'term.connFailed': '连接失败: {msg}',
   'term.connFailedTitle': '连接失败',
   'term.reconnect': '点击此处重新连接',
+  'term.autoRetrying': '正在自动重连（第 {n}/{max} 次）',
+  'term.stopRetry': '停止自动重连',
   'term.sftp': 'SFTP',
   'term.docker': 'Docker 管理',
   'term.cron': '定时任务管理',
@@ -255,6 +257,8 @@ export default {
   'settings.timeout': '连接超时（秒）',
   'settings.compression': 'SSH 压缩',
   'settings.compressionDesc': '启用后对传输数据压缩，弱网环境可提速',
+  'settings.autoReconnect': '自动重连',
+  'settings.autoReconnectDesc': '连接意外断开后自动重试恢复，最多尝试 10 次',
 
   // 消息
   'msg.saved': '已保存',

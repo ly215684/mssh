@@ -8,7 +8,7 @@ import { SettingsModal } from './pages/settings/SettingsModal'
 import { UpdateDialog } from './components/UpdateDialog'
 import { useAppStore } from './stores/appStore'
 import { useConnStore } from './stores/connStore'
-import { useSessionStore } from './stores/sessionStore'
+import { useSessionStore, initSshEvents } from './stores/sessionStore'
 import { startTransferListener } from './stores/transferStore'
 import { startUpdateListener, useUpdateStore } from './stores/updateStore'
 import { ConfirmHost, ContextMenuHost, MessageHost } from './components/ui'
@@ -29,6 +29,8 @@ export default function App() {
       useAppStore.getState().hydrate(cfg.settings, cfg.dataDir)
       useConnStore.getState().hydrate(cfg.connections, cfg.groups)
       startTransferListener()
+      // 全局订阅 SSH 退出事件（自动重连依赖，标签卸载时也不丢事件）
+      initSshEvents()
       // 自动更新：订阅事件；开启开关时启动后静默检查
       startUpdateListener()
       if (cfg.settings.autoUpdate) {

@@ -50,6 +50,8 @@ export interface SshSettings {
   connectTimeout: number
   /** 启用压缩 */
   compression: boolean
+  /** 意外断开后自动重连 */
+  autoReconnect: boolean
 }
 
 export type Language = 'zh-CN' | 'en-US'
@@ -224,5 +226,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
     keepaliveInterval: 30,
     connectTimeout: 15,
     compression: false,
+    autoReconnect: true,
   },
 }

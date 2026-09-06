@@ -63,6 +63,8 @@ export interface RendererApi {
   /** 返回取消订阅函数 */
   onSshData: (sessionId: string, cb: (data: string) => void) => () => void
   onSshExit: (sessionId: string, cb: () => void) => () => void
+  /** 全局 SSH 退出事件（不过滤会话），返回取消订阅函数 */
+  onAnySshExit: (cb: (sessionId: string) => void) => () => void
 
   // ---- SFTP（远程） ----
   sftpList: (sessionId: string, dir: string) => Promise<FileInfo[]>

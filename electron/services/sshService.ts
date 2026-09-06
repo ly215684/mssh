@@ -140,6 +140,8 @@ export function connect(cfg: Connection, sshSettings: SshSettings): Promise<SshS
       readyTimeout: sshSettings.connectTimeout * 1000,
       keepaliveInterval:
         sshSettings.keepaliveInterval > 0 ? sshSettings.keepaliveInterval * 1000 : 0,
+      // 允许连续丢失 5 次心跳才判定断线（默认 3 次），短暂网络抖动不轻易断开
+      keepaliveCountMax: 5,
       algorithms: {
         compress: sshSettings.compression ? ['zlib@openssh.com', 'zlib', 'none'] : undefined,
       },

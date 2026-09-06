@@ -88,6 +88,8 @@ export default {
   'term.connFailed': 'Connection failed: {msg}',
   'term.connFailedTitle': 'Connection Failed',
   'term.reconnect': 'Click here to reconnect',
+  'term.autoRetrying': 'Auto-reconnecting (attempt {n}/{max})',
+  'term.stopRetry': 'Stop auto-reconnect',
   'term.sftp': 'SFTP',
   'term.docker': 'Docker',
   'term.cron': 'Scheduled Tasks',
@@ -261,6 +263,8 @@ export default {
   'settings.timeout': 'Connect timeout (s)',
   'settings.compression': 'SSH compression',
   'settings.compressionDesc': 'Compress transferred data, useful on slow networks',
+  'settings.autoReconnect': 'Auto-reconnect',
+  'settings.autoReconnectDesc': 'Automatically retry after unexpected disconnects (up to 10 attempts)',
 
   // Messages
   'msg.saved': 'Saved',

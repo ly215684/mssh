@@ -13,6 +13,8 @@ interface ConnSession {
   info: SshSessionInfo | null
   status: ConnSessionStatus
   error?: string
+  /** 自动重连：即将/正在进行的重试序号（1 起）；undefined = 未在自动重连 */
+  retryAttempt?: number
 }
 
 interface SessionState {
@@ -34,6 +36,8 @@ interface SessionState {
   /** 恢复上次会话布局 */
   restore: (tabs: SessionTab[], activeTabId: string | null) => Promise<void>
   saveLayout: () => void
+  /** 停止自动重连（保留 closed 状态，可手动重连） */
+  stopRetry: (connectionId: string) => void
 }
 
 function tabTitle(type: SessionTab['type'], connName: string): string {
@@ -52,6 +56,10 @@ async function ensureSession(
   const existing = state.connSessions[connectionId]
   if (existing && (existing.status === 'connected' || existing.status === 'connecting')) {
     return existing.sshSessionId
+  }
+  // 手动连接优先：取消进行中的自动重连，避免双重连接
+  if (existing?.retryAttempt !== undefined) {
+    clearRetryTimer(connectionId)
   }
 
   const connection = useConnStore.getState().getConnection(connectionId)
@@ -89,6 +97,85 @@ async function ensureSession(
     void errorAlert(getGlobalT()('term.connFailedTitle'), e)
     return null
   }
+}
+
+/** 自动重连：最多尝试次数与退避间隔（5s 起、翻倍、上限 60s） */
+export const SSH_RETRY_MAX_ATTEMPTS = 10
+function retryDelay(attempt: number): number {
+  return Math.min(5000 * 2 ** (attempt - 1), 60000)
+}
+
+const retryTimers = new Map<string, ReturnType<typeof setTimeout>>()
+
+function clearRetryTimer(connectionId: string) {
+  const timer = retryTimers.get(connectionId)
+  if (timer) clearTimeout(timer)
+  retryTimers.delete(connectionId)
+}
+
+function patchConnSession(connectionId: string, patch: Partial<ConnSession>) {
+  useSessionStore.setState(s => {
+    const cur = s.connSessions[connectionId]
+    if (!cur) return {}
+    return {
+      connSessions: { ...s.connSessions, [connectionId]: { ...cur, ...patch } },
+    }
+  })
+}
+
+/** 排定第 attempt 次重试；超过上限则放弃（回到手动重连） */
+function scheduleRetry(connectionId: string, attempt: number) {
+  clearRetryTimer(connectionId)
+  if (attempt > SSH_RETRY_MAX_ATTEMPTS) {
+    patchConnSession(connectionId, { retryAttempt: undefined })
+    return
+  }
+  patchConnSession(connectionId, { retryAttempt: attempt })
+  retryTimers.set(
+    connectionId,
+    setTimeout(() => void attemptReconnect(connectionId, attempt), retryDelay(attempt)),
+  )
+}
+
+/** 单次重连尝试：静默进行（不弹错误弹窗），失败后继续退避 */
+async function attemptReconnect(connectionId: string, attempt: number) {
+  const cs = useSessionStore.getState().connSessions[connectionId]
+  // 已被取消 / 手动接管 / 标签已全部关闭
+  if (!cs || cs.retryAttempt === undefined || cs.status !== 'closed') return
+  const connection = useConnStore.getState().getConnection(connectionId)
+  if (!connection) return
+
+  patchConnSession(connectionId, { status: 'connecting', error: undefined })
+  try {
+    const info = await window.api.sshConnect(connection, useAppStore.getState().settings.ssh)
+    patchConnSession(connectionId, {
+      sshSessionId: info.sessionId,
+      info,
+      status: 'connected',
+      retryAttempt: undefined,
+    })
+    clearRetryTimer(connectionId)
+  } catch (e) {
+    patchConnSession(connectionId, {
+      sshSessionId: null,
+      info: null,
+      status: 'closed',
+      error: e instanceof Error ? e.message : String(e),
+    })
+    scheduleRetry(connectionId, attempt + 1)
+  }
+}
+
+/** 全局订阅 SSH 退出事件：标签卸载时也不丢事件，并触发自动重连 */
+let sshEventsBound = false
+export function initSshEvents() {
+  if (sshEventsBound) return
+  sshEventsBound = true
+  window.api.onAnySshExit(sessionId => {
+    const { connSessions, markClosed } = useSessionStore.getState()
+    const entry = Object.entries(connSessions).find(([, v]) => v.sshSessionId === sessionId)
+    if (entry) markClosed(entry[0])
+  })
 }
 
 /** 会话标签 store：标签生命周期 + SSH 连接生命周期 */
@@ -190,6 +277,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       if (session?.sshSessionId) {
         window.api.sshDisconnect(session.sshSessionId)
       }
+      clearRetryTimer(tab.connectionId)
       set(s => {
         const connSessions = { ...s.connSessions }
         delete connSessions[tab.connectionId]
@@ -205,6 +293,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   },
 
   reconnect: async connectionId => {
+    clearRetryTimer(connectionId)
     const session = get().connSessions[connectionId]
     if (session?.sshSessionId) {
       window.api.sshDisconnect(session.sshSessionId)
@@ -218,6 +307,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   },
 
   disconnect: async connectionId => {
+    clearRetryTimer(connectionId)
     const session = get().connSessions[connectionId]
     if (session?.sshSessionId) {
       window.api.sshDisconnect(session.sshSessionId)
@@ -244,16 +334,29 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   },
 
   markClosed: connectionId => {
+    const autoReconnect = useAppStore.getState().settings.ssh.autoReconnect
     set(s => {
       const cur = s.connSessions[connectionId]
       if (!cur || cur.status === 'closed') return {}
       return {
         connSessions: {
           ...s.connSessions,
-          [connectionId]: { sshSessionId: null, info: null, status: 'closed' },
+          [connectionId]: {
+            sshSessionId: null,
+            info: null,
+            status: 'closed',
+            // 意外退出：按设置进入自动重连流程
+            retryAttempt: autoReconnect ? 0 : undefined,
+          },
         },
       }
     })
+    if (autoReconnect) scheduleRetry(connectionId, 1)
+  },
+
+  stopRetry: connectionId => {
+    clearRetryTimer(connectionId)
+    patchConnSession(connectionId, { retryAttempt: undefined })
   },
 
   restore: async (tabs, activeTabId) => {

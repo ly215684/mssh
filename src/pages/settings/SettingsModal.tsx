@@ -153,6 +153,9 @@ export function SettingsModal() {
               <Row label={t('settings.compression')} desc={t('settings.compressionDesc')}>
                 <Switch checked={settings.ssh.compression} onChange={v => setSsh({ compression: v })} />
               </Row>
+              <Row label={t('settings.autoReconnect')} desc={t('settings.autoReconnectDesc')}>
+                <Switch checked={settings.ssh.autoReconnect} onChange={v => setSsh({ autoReconnect: v })} />
+              </Row>
             </div>
           )}
         </div>

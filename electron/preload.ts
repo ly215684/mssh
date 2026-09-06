@@ -64,6 +64,11 @@ const api: RendererApi = {
     ipcRenderer.on('ssh:exit', l)
     return () => ipcRenderer.off('ssh:exit', l)
   },
+  onAnySshExit: cb => {
+    const l = listener<[string]>(id => cb(id))
+    ipcRenderer.on('ssh:exit', l)
+    return () => ipcRenderer.off('ssh:exit', l)
+  },
 
   sftpList: (sessionId, dir) => ipcRenderer.invoke('sftp:list', sessionId, dir),
   sftpMkdir: (sessionId, dir) => ipcRenderer.invoke('sftp:mkdir', sessionId, dir),

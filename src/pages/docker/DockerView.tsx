@@ -100,6 +100,18 @@ export function DockerView({ tab }: { tab: SessionTab }) {
   const [version, setVersion] = useState('')
   const [containers, setContainers] = useState<DockerContainer[]>([])
   const [images, setImages] = useState<DockerImage[]>([])
+  /** 进行中的操作文案，用于内容区遮罩反馈 */
+  const [opLabel, setOpLabel] = useState<string | null>(null)
+
+  /** 执行远程操作：期间显示遮罩动画，完成/失败后关闭 */
+  const runOp = useCallback(async (label: string, fn: () => Promise<void>) => {
+    setOpLabel(label)
+    try {
+      await fn()
+    } finally {
+      setOpLabel(null)
+    }
+  }, [])
   const [logTarget, setLogTarget] = useState<DockerContainer | null>(null)
   const [composeOpen, setComposeOpen] = useState(false)
 
@@ -171,19 +183,21 @@ export function DockerView({ tab }: { tab: SessionTab }) {
         danger: action !== 'start',
       })
       if (!ok) return
-      try {
-        const res = await window.api.sshExec(sessionId, `docker ${action} ${shq(c.id)}`)
-        if (res.code !== 0) {
-          await errorAlert(t('docker.actionFailed'), res.stderr.trim() || res.stdout.trim())
-          return
+      await runOp(t('docker.opRunning'), async () => {
+        try {
+          const res = await window.api.sshExec(sessionId, `docker ${action} ${shq(c.id)}`)
+          if (res.code !== 0) {
+            await errorAlert(t('docker.actionFailed'), res.stderr.trim() || res.stdout.trim())
+            return
+          }
+          message.success(t(`docker.${action}Done`, { name: c.name }))
+          void load()
+        } catch (e) {
+          await errorAlert(t('docker.actionFailed'), e)
         }
-        message.success(t(`docker.${action}Done`, { name: c.name }))
-        void load()
-      } catch (e) {
-        await errorAlert(t('docker.actionFailed'), e)
-      }
+      })
     },
-    [sessionId, t, load],
+    [sessionId, t, load, runOp],
   )
 
   /** 删除容器：运行中强制停止后删除 */
@@ -197,19 +211,21 @@ export function DockerView({ tab }: { tab: SessionTab }) {
         danger: true,
       })
       if (!ok) return
-      try {
-        const res = await window.api.sshExec(sessionId, `docker rm -f ${shq(c.id)}`)
-        if (res.code !== 0) {
-          await errorAlert(t('docker.actionFailed'), res.stderr.trim() || res.stdout.trim())
-          return
+      await runOp(t('docker.opRunning'), async () => {
+        try {
+          const res = await window.api.sshExec(sessionId, `docker rm -f ${shq(c.id)}`)
+          if (res.code !== 0) {
+            await errorAlert(t('docker.actionFailed'), res.stderr.trim() || res.stdout.trim())
+            return
+          }
+          message.success(t('docker.removeDone', { name: c.name }))
+          void load()
+        } catch (e) {
+          await errorAlert(t('docker.actionFailed'), e)
         }
-        message.success(t('docker.removeDone', { name: c.name }))
-        void load()
-      } catch (e) {
-        await errorAlert(t('docker.actionFailed'), e)
-      }
+      })
     },
-    [sessionId, t, load],
+    [sessionId, t, load, runOp],
   )
 
   /** 删除镜像：被容器占用等失败时透出 docker 错误 */
@@ -222,19 +238,21 @@ export function DockerView({ tab }: { tab: SessionTab }) {
         danger: true,
       })
       if (!ok) return
-      try {
-        const res = await window.api.sshExec(sessionId, `docker rmi ${shq(im.id)}`)
-        if (res.code !== 0) {
-          await errorAlert(t('docker.actionFailed'), res.stderr.trim() || res.stdout.trim())
-          return
+      await runOp(t('docker.opRunning'), async () => {
+        try {
+          const res = await window.api.sshExec(sessionId, `docker rmi ${shq(im.id)}`)
+          if (res.code !== 0) {
+            await errorAlert(t('docker.actionFailed'), res.stderr.trim() || res.stdout.trim())
+            return
+          }
+          message.success(t('docker.removeDone', { name: `${im.repository}:${im.tag}` }))
+          void load()
+        } catch (e) {
+          await errorAlert(t('docker.actionFailed'), e)
         }
-        message.success(t('docker.removeDone', { name: `${im.repository}:${im.tag}` }))
-        void load()
-      } catch (e) {
-        await errorAlert(t('docker.actionFailed'), e)
-      }
+      })
     },
-    [sessionId, t, load],
+    [sessionId, t, load, runOp],
   )
 
   /** 容器行右键菜单 */
@@ -480,6 +498,14 @@ export function DockerView({ tab }: { tab: SessionTab }) {
             >
               {t('term.reconnect')}
             </button>
+          </div>
+        )}
+
+        {/* 操作遮罩 */}
+        {opLabel && (
+          <div className="absolute inset-0 bg-bg/50 flex flex-col items-center justify-center gap-2 z-20">
+            <Spinner size={20} />
+            <div className="text-xs text-dim">{opLabel}</div>
           </div>
         )}
       </div>

@@ -249,6 +249,18 @@ export function CronView({ tab }: { tab: SessionTab }) {
 
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
+  /** 进行中的写操作文案，用于列表区遮罩反馈 */
+  const [opLabel, setOpLabel] = useState<string | null>(null)
+
+  /** 执行写操作：期间显示遮罩动画，完成/失败后关闭 */
+  const runOp = useCallback(async (label: string, fn: () => Promise<void>) => {
+    setOpLabel(label)
+    try {
+      await fn()
+    } finally {
+      setOpLabel(null)
+    }
+  }, [])
   const [cronErr, setCronErr] = useState<string | null>(null)
   const [jobs, setJobs] = useState<CronJob[]>([])
   const [rawLines, setRawLines] = useState<string[]>([])
@@ -298,17 +310,19 @@ export function CronView({ tab }: { tab: SessionTab }) {
       }
       setSaving(true)
       try {
-        await writeCrontab(sessionId, serializeCrontab(rawLines, next))
-        message.success(t('cron.saved'))
-        setEditing(null)
-        void load()
+        await runOp(t('cron.opWriting'), async () => {
+          await writeCrontab(sessionId, serializeCrontab(rawLines, next))
+          message.success(t('cron.saved'))
+          setEditing(null)
+          void load()
+        })
       } catch (e) {
         await errorAlert(t('cron.errWrite'), e)
       } finally {
         setSaving(false)
       }
     },
-    [sessionId, jobs, rawLines, load, t],
+    [sessionId, jobs, rawLines, load, t, runOp],
   )
 
   /** 删除任务 */
@@ -324,16 +338,18 @@ export function CronView({ tab }: { tab: SessionTab }) {
       const next = jobs.filter(j => j.id !== job.id)
       setSaving(true)
       try {
-        await writeCrontab(sessionId, serializeCrontab(rawLines, next))
-        message.success(t('cron.deleteDone'))
-        void load()
+        await runOp(t('cron.opWriting'), async () => {
+          await writeCrontab(sessionId, serializeCrontab(rawLines, next))
+          message.success(t('cron.deleteDone'))
+          void load()
+        })
       } catch (e) {
         await errorAlert(t('cron.errWrite'), e)
       } finally {
         setSaving(false)
       }
     },
-    [sessionId, jobs, rawLines, load, t],
+    [sessionId, jobs, rawLines, load, t, runOp],
   )
 
   /** 启用 / 禁用任务 */
@@ -343,16 +359,18 @@ export function CronView({ tab }: { tab: SessionTab }) {
       const next = jobs.map(j => (j.id === job.id ? { ...j, enabled: !j.enabled } : j))
       setSaving(true)
       try {
-        await writeCrontab(sessionId, serializeCrontab(rawLines, next))
-        message.success(t(job.enabled ? 'cron.disableDone' : 'cron.enableDone'))
-        void load()
+        await runOp(t('cron.opWriting'), async () => {
+          await writeCrontab(sessionId, serializeCrontab(rawLines, next))
+          message.success(t(job.enabled ? 'cron.disableDone' : 'cron.enableDone'))
+          void load()
+        })
       } catch (e) {
         await errorAlert(t('cron.errWrite'), e)
       } finally {
         setSaving(false)
       }
     },
-    [sessionId, jobs, rawLines, load, t],
+    [sessionId, jobs, rawLines, load, t, runOp],
   )
 
   /** 任务行右键菜单 */
@@ -520,6 +538,14 @@ export function CronView({ tab }: { tab: SessionTab }) {
             >
               {t('term.reconnect')}
             </button>
+          </div>
+        )}
+
+        {/* 写操作遮罩 */}
+        {opLabel && (
+          <div className="absolute inset-0 bg-bg/50 flex flex-col items-center justify-center gap-2 z-20">
+            <Spinner size={20} />
+            <div className="text-xs text-dim">{opLabel}</div>
           </div>
         )}
       </div>

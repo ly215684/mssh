@@ -116,6 +116,7 @@ export default {
   'docker.removeImageTitle': 'Delete image',
   'docker.removeImageConfirm': 'Delete image {repo}:{tag}?',
   'docker.removeDone': 'Deleted {name}',
+  'docker.opRunning': 'Running operation…',
   'docker.errUnavailable': 'Docker is unavailable',
   'docker.errPerm':
     'The current user has no Docker access: add the user to the docker group (sudo usermod -aG docker $USER, then log in again) or connect as root.',
@@ -181,6 +182,7 @@ export default {
   'cron.deleteConfirm': 'Delete task "{name}"? This cannot be undone.',
   'cron.deleteDone': 'Task deleted',
   'cron.saved': 'Scheduled task saved',
+  'cron.opWriting': 'Writing crontab…',
   'cron.enabled': 'Enabled',
   'cron.disabled': 'Disabled',
   'cron.enable': 'Enable',

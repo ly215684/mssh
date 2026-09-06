@@ -266,6 +266,9 @@ export default {
   'settings.compressionDesc': 'Compress transferred data, useful on slow networks',
   'settings.autoReconnect': 'Auto-reconnect',
   'settings.autoReconnectDesc': 'Automatically retry after unexpected disconnects (up to 10 attempts)',
+  'settings.transferConcurrency': 'Transfer concurrency',
+  'settings.transferConcurrencyDesc':
+    'Concurrent SFTP requests (1-64). If the server resets the connection during transfers, lower this to 1 (compatibility mode)',
 
   // Messages
   'msg.saved': 'Saved',

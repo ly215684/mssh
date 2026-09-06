@@ -260,6 +260,9 @@ export default {
   'settings.compressionDesc': '启用后对传输数据压缩，弱网环境可提速',
   'settings.autoReconnect': '自动重连',
   'settings.autoReconnectDesc': '连接意外断开后自动重试恢复，最多尝试 10 次',
+  'settings.transferConcurrency': '传输并发数',
+  'settings.transferConcurrencyDesc':
+    'SFTP 传输的并发请求数（1-64）。若传输时连接被服务器重置，请调低至 1（兼容模式）',
 
   // 消息
   'msg.saved': '已保存',

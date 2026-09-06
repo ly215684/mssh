@@ -43,7 +43,9 @@ function humanizeExitReason(err: unknown): string {
   if (e?.level === 'client-timeout' || msg.includes('Keepalive timeout')) {
     return '心跳超时：连续多次未收到服务器回应（网络不稳定或连接已被静默丢弃）'
   }
-  if (msg.includes('ECONNRESET')) return '连接被重置：服务器或中间网络设备中断了 TCP 连接'
+  if (msg.includes('ECONNRESET')) {
+    return '连接被重置：服务器或中间网络设备中断了 TCP 连接（若传输文件时反复出现，请在设置中把"传输并发数"调低至 1 后重试）'
+  }
   if (msg.includes('ETIMEDOUT')) return '网络超时：数据无法到达服务器'
   if (msg.includes('EHOSTUNREACH') || msg.includes('ENETUNREACH')) return '网络不可达'
   if (msg.includes('ECONNREFUSED')) return '连接被拒绝：服务器端口未开放'

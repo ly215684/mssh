@@ -52,6 +52,8 @@ export interface SshSettings {
   compression: boolean
   /** 意外断开后自动重连 */
   autoReconnect: boolean
+  /** SFTP 传输并发请求数（1-64）。服务器 sftp 实现兼容性差时应调低 */
+  transferConcurrency: number
 }
 
 export type Language = 'zh-CN' | 'en-US'
@@ -227,5 +229,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
     connectTimeout: 15,
     compression: false,
     autoReconnect: true,
+    transferConcurrency: 4,
   },
 }

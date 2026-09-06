@@ -156,6 +156,15 @@ export function SettingsModal() {
               <Row label={t('settings.autoReconnect')} desc={t('settings.autoReconnectDesc')}>
                 <Switch checked={settings.ssh.autoReconnect} onChange={v => setSsh({ autoReconnect: v })} />
               </Row>
+              <Row label={t('settings.transferConcurrency')} desc={t('settings.transferConcurrencyDesc')}>
+                <Input
+                  type="number"
+                  min={1}
+                  max={64}
+                  value={settings.ssh.transferConcurrency}
+                  onChange={e => setSsh({ transferConcurrency: number(e.target.value, 4) })}
+                />
+              </Row>
             </div>
           )}
         </div>

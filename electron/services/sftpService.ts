@@ -4,6 +4,7 @@ import fsp from 'node:fs/promises'
 import path from 'node:path'
 import { BrowserWindow } from 'electron'
 import type { FileInfo, TransferItem } from '../shared/types'
+import { getAll } from './configStore'
 import { exec, getSession, onSessionClosed, type SshSession } from './sshService'
 import { sortEntries } from './localFs'
 
@@ -458,8 +459,22 @@ function basenameRemote(p: string): string {
 
 /** 单个 SFTP 读写请求的块大小（与 ssh2 fastXfer 默认一致） */
 const CHUNK_SIZE = 32 * 1024
-/** 管道并发请求数 */
-const PIPELINE = 64
+/** 并发请求数上限 */
+const PIPELINE_MAX = 64
+
+/**
+ * 从设置读取传输并发数。部分服务器的 sftp-server 实现（NAS/嵌入式/Windows OpenSSH 等）
+ * 无法承受高并发写，会崩溃导致整个 SSH 连接被重置（ECONNRESET），故默认保守值 4。
+ */
+function pipelineCount(): number {
+  try {
+    const c = getAll().settings.ssh.transferConcurrency
+    if (Number.isFinite(c) && c >= 1) return Math.min(PIPELINE_MAX, Math.floor(c))
+  } catch {
+    // 配置读取失败时使用保守默认
+  }
+  return 4
+}
 
 function sftpOpen(sftp: SFTPWrapper, p: string, flags: 'r' | 'w'): Promise<Buffer> {
   return new Promise((resolve, reject) => {
@@ -603,7 +618,7 @@ async function putFile(
             fail(err)
           })
       }
-      for (let i = 0; i < PIPELINE; i++) pump()
+      for (let i = 0, n = pipelineCount(); i < n; i++) pump()
     })
   } finally {
     if (ctl) ctl.abort = null
@@ -729,7 +744,7 @@ async function getFile(
             .catch((werr: Error) => fail(werr))
         })
       }
-      for (let i = 0; i < PIPELINE; i++) pump()
+      for (let i = 0, n = pipelineCount(); i < n; i++) pump()
     })
   } finally {
     if (ctl) ctl.abort = null

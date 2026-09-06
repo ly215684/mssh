@@ -117,6 +117,7 @@ export default {
   'docker.removeImageConfirm': '确定删除镜像 {repo}:{tag}？',
   'docker.removeDone': '已删除 {name}',
   'docker.opRunning': '正在执行操作…',
+  'docker.allLogs': '全部日志',
   'docker.errUnavailable': 'Docker 不可用',
   'docker.errPerm': '当前用户没有 Docker 访问权限：请将用户加入 docker 组（sudo usermod -aG docker $USER 后重新登录），或使用 root 连接。',
   'docker.errInstall': '未检测到 Docker：请先在服务器上安装 Docker（curl -fsSL https://get.docker.com | sh）。',

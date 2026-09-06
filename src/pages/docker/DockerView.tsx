@@ -541,6 +541,8 @@ function LogsModal({
   const t = useT()
   const [text, setText] = useState('')
   const [follow, setFollow] = useState(true)
+  /** 全部日志：开启后不限制条数，否则只取最近 300 条 */
+  const [all, setAll] = useState(false)
   const [streaming, setStreaming] = useState(false)
   const [nonce, setNonce] = useState(0)
   const streamIdRef = useRef<string | null>(null)
@@ -567,16 +569,17 @@ function LogsModal({
     }
   }, [])
 
-  // follow 切换 / 手动刷新 → 重新拉取
+  // follow / all 切换 / 手动刷新 → 重新拉取
   useEffect(() => {
     let cancelled = false
     setText('')
+    const tailArg = all ? '' : ' --tail 300'
     if (follow) {
       setStreaming(true)
       window.api
         .sshExecStream(
           sessionId,
-          `docker logs --tail 300 -f --timestamps ${shq(container.id)}`,
+          `docker logs -f --timestamps${tailArg} ${shq(container.id)}`,
         )
         .then(sid => {
           if (cancelled) {
@@ -591,7 +594,7 @@ function LogsModal({
     } else {
       setStreaming(false)
       window.api
-        .sshExec(sessionId, `docker logs --tail 1000 --timestamps ${shq(container.id)}`)
+        .sshExec(sessionId, `docker logs --timestamps${tailArg} ${shq(container.id)}`)
         .then(res => {
           if (!cancelled) setText(res.stdout + res.stderr)
         })
@@ -606,7 +609,7 @@ function LogsModal({
         streamIdRef.current = null
       }
     }
-  }, [follow, nonce, sessionId, container.id, t])
+  }, [follow, all, nonce, sessionId, container.id, t])
 
   // 跟随模式自动滚动到底部
   useEffect(() => {
@@ -630,6 +633,10 @@ function LogsModal({
           <span className="text-xs text-dim inline-flex items-center gap-2 select-none">
             <Switch checked={follow} onChange={setFollow} />
             {t('docker.follow')}
+          </span>
+          <span className="text-xs text-dim inline-flex items-center gap-2 select-none">
+            <Switch checked={all} onChange={setAll} />
+            {t('docker.allLogs')}
           </span>
           <div className="flex-1" />
           <Button

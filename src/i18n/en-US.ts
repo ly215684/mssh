@@ -117,6 +117,7 @@ export default {
   'docker.removeImageConfirm': 'Delete image {repo}:{tag}?',
   'docker.removeDone': 'Deleted {name}',
   'docker.opRunning': 'Running operation…',
+  'docker.allLogs': 'All logs',
   'docker.errUnavailable': 'Docker is unavailable',
   'docker.errPerm':
     'The current user has no Docker access: add the user to the docker group (sudo usermod -aG docker $USER, then log in again) or connect as root.',

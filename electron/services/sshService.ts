@@ -36,9 +36,32 @@ export function getSession(id: string): SshSession | undefined {
   return sessions.get(id)
 }
 
-function removeAndNotify(id: string) {
+/** 将 ssh2 原始断开错误转成用户可读的原因 */
+function humanizeExitReason(err: unknown): string {
+  const e = err as { message?: string; level?: string; code?: string }
+  const msg = String(e?.message ?? '')
+  if (e?.level === 'client-timeout' || msg.includes('Keepalive timeout')) {
+    return '心跳超时：连续多次未收到服务器回应（网络不稳定或连接已被静默丢弃）'
+  }
+  if (msg.includes('ECONNRESET')) return '连接被重置：服务器或中间网络设备中断了 TCP 连接'
+  if (msg.includes('ETIMEDOUT')) return '网络超时：数据无法到达服务器'
+  if (msg.includes('EHOSTUNREACH') || msg.includes('ENETUNREACH')) return '网络不可达'
+  if (msg.includes('ECONNREFUSED')) return '连接被拒绝：服务器端口未开放'
+  if (msg.includes('Timed out while waiting for handshake')) return '握手超时：服务器长时间无响应'
+  return msg || '连接已断开'
+}
+
+/**
+ * 会话退出并广播。reason 用于向渲染层透出断开原因（error 先于 close 触发，
+ * 以先到达者为准，避免 close 的默认原因覆盖具体错误）。
+ */
+const exitReasons = new Map<string, string>()
+function removeAndNotify(id: string, reason?: string) {
+  if (reason && !exitReasons.has(id)) exitReasons.set(id, reason)
   if (sessions.has(id)) {
     sessions.delete(id)
+    const why = exitReasons.get(id) ?? '连接已断开'
+    console.warn(`[ssh] session exit: ${id.slice(0, 8)}… reason: ${why}`)
     for (const h of closeHooks) {
       try {
         h(id)
@@ -46,8 +69,9 @@ function removeAndNotify(id: string) {
         // 钩子失败不影响断开流程
       }
     }
-    broadcast('ssh:exit', id)
+    broadcast('ssh:exit', id, why)
   }
+  if (!sessions.has(id)) exitReasons.delete(id)
 }
 
 /** 将晦涩的 ssh2 认证错误转换为可操作的提示 */
@@ -129,7 +153,7 @@ export function connect(cfg: Connection, sshSettings: SshSettings): Promise<SshS
         })
         stream.on('close', () => {
           conn.end()
-          removeAndNotify(id)
+          removeAndNotify(id, 'Shell 会话已结束（服务器端退出）')
         })
 
         sessions.set(id, session)
@@ -145,7 +169,8 @@ export function connect(cfg: Connection, sshSettings: SshSettings): Promise<SshS
         settled = true
         reject(humanizeAuthError(err, cfg))
       }
-      removeAndNotify(id)
+      // 连接建立后的错误（心跳超时/网络重置等）：透出可读原因
+      removeAndNotify(id, humanizeExitReason(err))
     })
     conn.on('close', () => removeAndNotify(id))
 

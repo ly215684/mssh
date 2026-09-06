@@ -260,7 +260,7 @@ export default {
   'settings.bellNone': 'Off',
   'settings.bellSound': 'Sound',
   'settings.keepalive': 'Keep-alive interval (s)',
-  'settings.keepaliveDesc': '0 disables keep-alive',
+  'settings.keepaliveDesc': 'Sends periodic probes on idle connections to keep NAT/firewalls from dropping the link; 0 disables (not recommended)',
   'settings.timeout': 'Connect timeout (s)',
   'settings.compression': 'SSH compression',
   'settings.compressionDesc': 'Compress transferred data, useful on slow networks',

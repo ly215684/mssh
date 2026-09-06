@@ -31,8 +31,8 @@ interface SessionState {
   setActive: (tabId: string) => void
   reconnect: (connectionId: string) => Promise<void>
   disconnect: (connectionId: string) => Promise<void>
-  /** SSH 会话退出（主进程事件回调） */
-  markClosed: (connectionId: string) => void
+  /** SSH 会话退出（主进程事件回调）；reason 为可读断开原因 */
+  markClosed: (connectionId: string, reason?: string) => void
   /** 恢复上次会话布局 */
   restore: (tabs: SessionTab[], activeTabId: string | null) => Promise<void>
   saveLayout: () => void
@@ -171,10 +171,10 @@ let sshEventsBound = false
 export function initSshEvents() {
   if (sshEventsBound) return
   sshEventsBound = true
-  window.api.onAnySshExit(sessionId => {
+  window.api.onAnySshExit((sessionId, reason) => {
     const { connSessions, markClosed } = useSessionStore.getState()
     const entry = Object.entries(connSessions).find(([, v]) => v.sshSessionId === sessionId)
-    if (entry) markClosed(entry[0])
+    if (entry) markClosed(entry[0], reason)
   })
 }
 
@@ -333,7 +333,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     get().saveLayout()
   },
 
-  markClosed: connectionId => {
+  markClosed: (connectionId, reason) => {
     const autoReconnect = useAppStore.getState().settings.ssh.autoReconnect
     set(s => {
       const cur = s.connSessions[connectionId]
@@ -345,6 +345,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
             sshSessionId: null,
             info: null,
             status: 'closed',
+            // 断开原因（心跳超时/连接重置/服务器端退出等），供界面展示
+            error: reason,
             // 意外退出：按设置进入自动重连流程
             retryAttempt: autoReconnect ? 0 : undefined,
           },

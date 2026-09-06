@@ -58,14 +58,14 @@ const api: RendererApi = {
     return () => ipcRenderer.off('ssh:data', l)
   },
   onSshExit: (sessionId, cb) => {
-    const l = listener<[string]>(id => {
-      if (id === sessionId) cb()
+    const l = listener<[string, string]>((id, reason) => {
+      if (id === sessionId) cb(reason)
     })
     ipcRenderer.on('ssh:exit', l)
     return () => ipcRenderer.off('ssh:exit', l)
   },
   onAnySshExit: cb => {
-    const l = listener<[string]>(id => cb(id))
+    const l = listener<[string, string]>((id, reason) => cb(id, reason))
     ipcRenderer.on('ssh:exit', l)
     return () => ipcRenderer.off('ssh:exit', l)
   },

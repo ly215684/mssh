@@ -97,6 +97,11 @@ export function TerminalView({ tab }: { tab: SessionTab }) {
         {(status === 'error' || status === 'closed') && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
             <div className="text-sm text-danger">{t('term.connClosed')}</div>
+            {connSession?.error && (
+              <div className="text-xs text-faint max-w-md text-center break-all selectable">
+                {connSession.error}
+              </div>
+            )}
             {connSession?.retryAttempt !== undefined ? (
               <>
                 <div className="text-xs text-dim">
@@ -113,19 +118,12 @@ export function TerminalView({ tab }: { tab: SessionTab }) {
                 </button>
               </>
             ) : (
-              <>
-                {connSession?.error && (
-                  <div className="text-xs text-faint max-w-md text-center break-all selectable">
-                    {connSession.error}
-                  </div>
-                )}
-                <button
-                  onClick={() => reconnect(tab.connectionId)}
-                  className="mt-1 text-xs text-accent hover:underline"
-                >
-                  {t('term.reconnect')}
-                </button>
-              </>
+              <button
+                onClick={() => reconnect(tab.connectionId)}
+                className="mt-1 text-xs text-accent hover:underline"
+              >
+                {t('term.reconnect')}
+              </button>
             )}
           </div>
         )}

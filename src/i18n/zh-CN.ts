@@ -254,7 +254,7 @@ export default {
   'settings.bellNone': '关闭',
   'settings.bellSound': '声音',
   'settings.keepalive': '保活间隔（秒）',
-  'settings.keepaliveDesc': '0 表示禁用心跳保活',
+  'settings.keepaliveDesc': '空闲时定期向服务器发送探测包，防止 NAT/防火墙回收空闲链路；0 表示禁用（不建议）',
   'settings.timeout': '连接超时（秒）',
   'settings.compression': 'SSH 压缩',
   'settings.compressionDesc': '启用后对传输数据压缩，弱网环境可提速',

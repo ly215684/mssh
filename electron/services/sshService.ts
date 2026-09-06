@@ -237,6 +237,11 @@ export function disconnect(sessionId: string) {
   }
 }
 
+/** 断开所有 SSH 会话（应用退出时调用），服务器端立即回收会话 */
+export function disconnectAll(): void {
+  for (const id of [...sessions.keys()]) disconnect(id)
+}
+
 export function isConnected(connectionId: string): boolean {
   for (const s of sessions.values()) {
     if (s.connCfg.id === connectionId) return true

@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import { registerAllIpc } from './ipc'
 import { initAutoUpdater } from './services/autoUpdateService'
+import { disconnectAll } from './services/sshService'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -68,4 +69,9 @@ app.on('window-all-closed', () => {
     app.quit()
     win = null
   }
+})
+
+// 关闭应用时断开所有 SSH 连接（含 SFTP 通道），避免服务器端残留挂起会话
+app.on('before-quit', () => {
+  disconnectAll()
 })

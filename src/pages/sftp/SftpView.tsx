@@ -79,7 +79,7 @@ export function SftpView({ tab }: { tab: SessionTab }) {
     <div className="flex flex-col h-full bg-bg">
       <div className="flex-1 min-h-0 relative">
         {sessionId ? (
-          <div className="grid grid-cols-2 h-full">
+          <div className="grid grid-cols-2 grid-rows-1 h-full">
             <div className="min-w-0 h-full">
               <FilePane
                 ref={localRef}

@@ -19,6 +19,7 @@ import {
   RotateCw,
   ScrollText,
   Square,
+  Trash2,
   XCircle,
 } from 'lucide-react'
 import type {
@@ -185,6 +186,57 @@ export function DockerView({ tab }: { tab: SessionTab }) {
     [sessionId, t, load],
   )
 
+  /** 删除容器：运行中强制停止后删除 */
+  const removeContainer = useCallback(
+    async (c: DockerContainer) => {
+      if (!sessionId) return
+      const running = c.state === 'running'
+      const ok = await confirm({
+        title: t('docker.removeContainerTitle'),
+        content: t(running ? 'docker.removeContainerRunningConfirm' : 'docker.removeContainerConfirm', { name: c.name }),
+        danger: true,
+      })
+      if (!ok) return
+      try {
+        const res = await window.api.sshExec(sessionId, `docker rm -f ${shq(c.id)}`)
+        if (res.code !== 0) {
+          await errorAlert(t('docker.actionFailed'), res.stderr.trim() || res.stdout.trim())
+          return
+        }
+        message.success(t('docker.removeDone', { name: c.name }))
+        void load()
+      } catch (e) {
+        await errorAlert(t('docker.actionFailed'), e)
+      }
+    },
+    [sessionId, t, load],
+  )
+
+  /** 删除镜像：被容器占用等失败时透出 docker 错误 */
+  const removeImage = useCallback(
+    async (im: DockerImage) => {
+      if (!sessionId) return
+      const ok = await confirm({
+        title: t('docker.removeImageTitle'),
+        content: t('docker.removeImageConfirm', { repo: im.repository, tag: im.tag }),
+        danger: true,
+      })
+      if (!ok) return
+      try {
+        const res = await window.api.sshExec(sessionId, `docker rmi ${shq(im.id)}`)
+        if (res.code !== 0) {
+          await errorAlert(t('docker.actionFailed'), res.stderr.trim() || res.stdout.trim())
+          return
+        }
+        message.success(t('docker.removeDone', { name: `${im.repository}:${im.tag}` }))
+        void load()
+      } catch (e) {
+        await errorAlert(t('docker.actionFailed'), e)
+      }
+    },
+    [sessionId, t, load],
+  )
+
   /** 容器行右键菜单 */
   const onRowCtx = useCallback(
     (e: ReactMouseEvent, c: DockerContainer) => {
@@ -201,13 +253,25 @@ export function DockerView({ tab }: { tab: SessionTab }) {
         },
         { key: 'divider', label: '', divider: true },
         { key: 'logs', label: t('docker.logs'), icon: <ScrollText size={14} /> },
+        { key: 'remove', label: t('docker.remove'), icon: <Trash2 size={14} />, danger: true },
       ]
       openContextMenu(e, items, key => {
         if (key === 'logs') setLogTarget(c)
+        else if (key === 'remove') void removeContainer(c)
         else void containerAction(c, key as 'start' | 'stop' | 'restart')
       })
     },
-    [openContextMenu, t, containerAction],
+    [openContextMenu, t, containerAction, removeContainer],
+  )
+
+  /** 镜像行右键菜单 */
+  const onImageCtx = useCallback(
+    (e: ReactMouseEvent, im: DockerImage) => {
+      openContextMenu(e, [{ key: 'remove', label: t('docker.remove'), icon: <Trash2 size={14} />, danger: true }], key => {
+        if (key === 'remove') void removeImage(im)
+      })
+    },
+    [openContextMenu, t, removeImage],
   )
 
   if (!conn) return null
@@ -367,7 +431,11 @@ export function DockerView({ tab }: { tab: SessionTab }) {
                   </thead>
                   <tbody>
                     {images.map(im => (
-                      <tr key={im.id} className="border-b border-bd/50 hover:bg-hover">
+                      <tr
+                        key={im.id}
+                        className="border-b border-bd/50 hover:bg-hover"
+                        onContextMenu={e => onImageCtx(e, im)}
+                      >
                         <td className="px-3 h-9">
                           <span className="text-fg font-mono text-xs">{im.repository}</span>
                         </td>

@@ -17,6 +17,15 @@ export interface SshSession {
 
 const sessions = new Map<string, SshSession>()
 
+/** 会话关闭钩子（用于清理依赖该会话的资源，如传输任务） */
+type SessionCloseHook = (sessionId: string) => void
+const closeHooks: SessionCloseHook[] = []
+
+/** 注册会话关闭回调；断开/出错/流关闭时触发 */
+export function onSessionClosed(cb: SessionCloseHook): void {
+  closeHooks.push(cb)
+}
+
 function broadcast(channel: string, ...args: unknown[]) {
   for (const win of BrowserWindow.getAllWindows()) {
     if (!win.isDestroyed()) win.webContents.send(channel, ...args)
@@ -30,6 +39,13 @@ export function getSession(id: string): SshSession | undefined {
 function removeAndNotify(id: string) {
   if (sessions.has(id)) {
     sessions.delete(id)
+    for (const h of closeHooks) {
+      try {
+        h(id)
+      } catch {
+        // 钩子失败不影响断开流程
+      }
+    }
     broadcast('ssh:exit', id)
   }
 }
@@ -183,6 +199,13 @@ export function disconnect(sessionId: string) {
   const s = sessions.get(sessionId)
   if (s) {
     sessions.delete(sessionId)
+    for (const h of closeHooks) {
+      try {
+        h(sessionId)
+      } catch {
+        // 钩子失败不影响断开流程
+      }
+    }
     s.conn.end()
   }
 }

@@ -3,7 +3,7 @@ import { ArrowDown, ArrowUp, ChevronDown, ChevronUp, X } from 'lucide-react'
 import type { TransferStatus } from '../../../electron/shared/types'
 import { useT } from '../../i18n/I18nProvider'
 import { Progress, Tooltip } from '../../components/ui'
-import { queueSummary, useTransferStore } from '../../stores/transferStore'
+import { queueSummary, cancelTransfer, useTransferStore } from '../../stores/transferStore'
 import { formatSize, formatSpeed } from '../../utils/files'
 
 const STATUS_INFO: Record<TransferStatus, { key: 'sftp.pending' | 'sftp.active' | 'sftp.done' | 'sftp.failed' | 'sftp.cancelled'; cls: string }> = {
@@ -50,6 +50,7 @@ export function TransferPanel() {
           {items.map(item => {
             const pct = item.size ? Math.round((item.transferred / item.size) * 100) : 0
             const info = STATUS_INFO[item.status]
+            const running = item.status === 'active' || item.status === 'pending'
             return (
               <div
                 key={item.id}
@@ -58,7 +59,7 @@ export function TransferPanel() {
                     ? `${item.error}\n${item.localPath} → ${item.remotePath}`
                     : `${item.localPath} → ${item.remotePath}`
                 }
-                className="grid grid-cols-[18px_minmax(0,1fr)_110px_110px_70px_52px] gap-2 items-center h-9 px-3 text-xs hover:bg-hover/40 transition-colors"
+                className="grid grid-cols-[18px_minmax(0,1fr)_110px_110px_70px_52px_20px] gap-2 items-center h-9 px-3 text-xs hover:bg-hover/40 transition-colors"
               >
                 {item.direction === 'upload' ? (
                   <ArrowUp size={13} className="text-accent" />
@@ -76,6 +77,22 @@ export function TransferPanel() {
                   {item.status === 'active' ? formatSpeed(item.speed) : ''}
                 </span>
                 <span className={`text-right ${info.cls}`}>{t(info.key)}</span>
+                <span>
+                  {running && (
+                    <Tooltip label={t('sftp.cancel')}>
+                      <button
+                        type="button"
+                        onClick={e => {
+                          e.stopPropagation()
+                          cancelTransfer(item.id)
+                        }}
+                        className="size-5 flex items-center justify-center rounded text-dim hover:text-danger hover:bg-hover transition-colors"
+                      >
+                        <X size={12} />
+                      </button>
+                    </Tooltip>
+                  )}
+                </span>
               </div>
             )
           })}

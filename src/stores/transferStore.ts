@@ -39,6 +39,11 @@ export function startTransferListener(): void {
   })
 }
 
+/** 取消传输任务（等待中立即取消；进行中的中断引擎） */
+export function cancelTransfer(id: string): void {
+  void window.api.cancelTransfer(id)
+}
+
 /** 队列概要：进行中数量与总速度 */
 export function queueSummary(items: TransferItem[]): { activeCount: number; speed: number } {
   let activeCount = 0

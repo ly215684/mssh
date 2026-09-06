@@ -85,6 +85,7 @@ const api: RendererApi = {
     ipcRenderer.invoke('sftp:upload', sessionId, localPaths, remoteDir),
   sftpDownload: (sessionId, remotePaths, localDir) =>
     ipcRenderer.invoke('sftp:download', sessionId, remotePaths, localDir),
+  cancelTransfer: id => ipcRenderer.invoke('sftp:cancelTransfer', id),
   onTransfer: cb => {
     const listener = (_e: IpcRendererEvent, item: Parameters<typeof cb>[0]) => cb(item)
     ipcRenderer.on('transfer:progress', listener)

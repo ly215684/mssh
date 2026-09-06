@@ -222,6 +222,7 @@ export default {
   'sftp.up': '上级目录',
   'sftp.selected': '已选 {count} 项',
   'sftp.clearFinished': '清除已完成记录',
+  'sftp.cancel': '取消传输',
   'sftp.noSession': 'SSH 会话未连接，无法使用远程文件',
   'sftp.size': '大小',
   'sftp.mtime': '修改时间',

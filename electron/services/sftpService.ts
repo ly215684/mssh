@@ -4,7 +4,7 @@ import fsp from 'node:fs/promises'
 import path from 'node:path'
 import { BrowserWindow } from 'electron'
 import type { FileInfo, TransferItem } from '../shared/types'
-import { exec, getSession, type SshSession } from './sshService'
+import { exec, getSession, onSessionClosed, type SshSession } from './sshService'
 import { sortEntries } from './localFs'
 
 function asSession(id: string): SshSession | undefined {
@@ -243,6 +243,25 @@ const transfers = new Map<string, TransferItem>()
 /** 每会话串行执行队列 */
 const queues = new Map<string, Promise<void>>()
 
+/** 用户主动取消 */
+class CancelledError extends Error {
+  constructor() {
+    super('已取消')
+    this.name = 'CancelledError'
+  }
+}
+
+/** 传输控制块：取消标志 + 中止入口 + 看门狗时间戳 */
+interface TransferCtl {
+  sessionId: string
+  cancelled: boolean
+  /** 最后一次分块完成的时间戳（无进展超时判定） */
+  lastProgress: number
+  /** 引擎运行中可调用：立即中断传输（取消/超时/连接断开） */
+  abort: ((err: Error) => void) | null
+}
+const ctls = new Map<string, TransferCtl>()
+
 function enqueue(sessionId: string, task: () => Promise<void>) {
   const prev = queues.get(sessionId) ?? Promise.resolve()
   const next = prev.catch(() => {}).then(task)
@@ -255,6 +274,29 @@ function enqueue(sessionId: string, task: () => Promise<void>) {
 function emitTransfer(item: TransferItem) {
   broadcast('transfer:progress', { ...item })
 }
+
+/**
+ * 看门狗：连接静默断开时 SFTP 请求永远得不到响应（无错误也无进展），
+ * 定期检查无进展的活动任务并中止，避免任务永久卡在"传输中"。
+ */
+const WATCHDOG_MS = 30_000
+setInterval(() => {
+  const now = Date.now()
+  for (const ctl of ctls.values()) {
+    if (ctl.abort && now - ctl.lastProgress > WATCHDOG_MS) {
+      ctl.abort(new Error('传输无响应，连接可能已中断'))
+    }
+  }
+}, 5000)
+
+/** SSH 会话关闭时，立即中断该会话的所有传输任务 */
+onSessionClosed(sessionId => {
+  for (const ctl of ctls.values()) {
+    if (ctl.sessionId === sessionId && ctl.abort) {
+      ctl.abort(new Error('SSH 连接已断开，传输中断'))
+    }
+  }
+})
 
 /** 递归计算本地路径总大小（目录内所有文件之和） */
 async function calcLocalTotalSize(p: string): Promise<number> {
@@ -284,6 +326,10 @@ async function calcRemoteTotalSize(sftp: SFTPWrapper, p: string): Promise<number
   return total
 }
 
+function newCtl(sessionId: string): TransferCtl {
+  return { sessionId, cancelled: false, lastProgress: Date.now(), abort: null }
+}
+
 /** 上传：支持文件与目录（递归），同一会话内串行执行 */
 export async function upload(sessionId: string, localPaths: string[], remoteDir: string): Promise<string[]> {
   const session = asSession(sessionId)
@@ -306,74 +352,13 @@ export async function upload(sessionId: string, localPaths: string[], remoteDir:
       status: 'pending',
       speed: 0,
     })
+    ctls.set(id, newCtl(sessionId))
     ids.push(id)
+    emitTransfer(transfers.get(id)!)
   }
 
-  enqueue(sessionId, async () => {
-    for (const id of ids) {
-      const item = transfers.get(id)
-      if (!item) continue
-      const ctx = { baseTransferred: 0 }
-      try {
-        await uploadEntry(sessionId, item, ctx, item.localPath, item.remotePath)
-        item.transferred = item.size
-        item.speed = 0
-        item.status = 'done'
-        emitTransfer(item)
-      } catch (e) {
-        item.status = 'error'
-        item.error = (e as Error).message
-        emitTransfer(item)
-      }
-    }
-  })
-
+  enqueue(sessionId, () => runQueue(sessionId, ids, 'upload'))
   return ids
-}
-
-async function uploadEntry(
-  sessionId: string,
-  item: TransferItem,
-  ctx: { baseTransferred: number },
-  localPath: string,
-  remotePath: string,
-) {
-  const sftp = await getSftp(sessionId)
-  const st = await fsp.stat(localPath)
-
-  if (st.isDirectory()) {
-    await ensureRemoteDir(sftp, remotePath)
-    const children = await fsp.readdir(localPath)
-    for (const child of children) {
-      await uploadEntry(sessionId, item, ctx, path.join(localPath, child), joinRemote(remotePath, child))
-    }
-    return
-  }
-
-  item.status = 'active'
-  emitTransfer(item)
-
-  const fileSize = st.size
-  let lastTs = Date.now()
-  let lastBytes = 0
-  await new Promise<void>((resolve, reject) => {
-    sftp.fastPut(localPath, remotePath, {
-      step: (sent: number) => {
-        item.transferred = ctx.baseTransferred + sent
-        const now = Date.now()
-        if (now - lastTs > 300) {
-          const instant = ((sent - lastBytes) * 1000) / (now - lastTs)
-          item.speed = item.speed > 0 ? item.speed * 0.6 + instant * 0.4 : instant
-          lastTs = now
-          lastBytes = sent
-          emitTransfer(item)
-        }
-      },
-    }, err => (err ? reject(err) : resolve()))
-  })
-
-  ctx.baseTransferred += fileSize
-  item.transferred = ctx.baseTransferred
 }
 
 /** 下载：支持文件与目录（递归） */
@@ -398,33 +383,233 @@ export async function download(sessionId: string, remotePaths: string[], localDi
       status: 'pending',
       speed: 0,
     })
+    ctls.set(id, newCtl(sessionId))
     ids.push(id)
+    emitTransfer(transfers.get(id)!)
   }
 
-  enqueue(sessionId, async () => {
-    for (const id of ids) {
-      const item = transfers.get(id)
-      if (!item) continue
-      const ctx = { baseTransferred: 0 }
-      try {
-        await downloadEntry(sessionId, item, ctx, item.remotePath, item.localPath)
-        item.transferred = item.size
+  enqueue(sessionId, () => runQueue(sessionId, ids, 'download'))
+  return ids
+}
+
+/** 队列执行：逐个任务运行，取消/失败不影响后续任务 */
+async function runQueue(sessionId: string, ids: string[], direction: 'upload' | 'download') {
+  for (const id of ids) {
+    const item = transfers.get(id)
+    if (!item) continue
+    const ctl = ctls.get(id)
+    if (ctl?.cancelled) {
+      if (item.status !== 'cancelled') {
+        item.status = 'cancelled'
         item.speed = 0
-        item.status = 'done'
-        emitTransfer(item)
-      } catch (e) {
-        item.status = 'error'
-        item.error = (e as Error).message
         emitTransfer(item)
       }
+      continue
     }
-  })
+    const ctx = { baseTransferred: 0 }
+    try {
+      if (direction === 'upload') {
+        await uploadEntry(sessionId, item, ctx, item.localPath, item.remotePath)
+      } else {
+        await downloadEntry(sessionId, item, ctx, item.remotePath, item.localPath)
+      }
+      item.transferred = item.size
+      item.speed = 0
+      item.status = 'done'
+      emitTransfer(item)
+    } catch (e) {
+      item.speed = 0
+      if (e instanceof CancelledError) {
+        item.status = 'cancelled'
+      } else {
+        item.status = 'error'
+        item.error = (e as Error).message
+      }
+      emitTransfer(item)
+    } finally {
+      ctls.delete(id)
+      transfers.delete(id)
+    }
+  }
+}
 
-  return ids
+/** 取消传输：pending 立即标记取消；active 通知引擎中断（引擎回调后标记） */
+export function cancelTransfer(id: string): boolean {
+  const item = transfers.get(id)
+  if (!item) return false
+  if (item.status !== 'pending' && item.status !== 'active') return false
+  const ctl = ctls.get(id)
+  if (ctl) ctl.cancelled = true
+  if (item.status === 'pending') {
+    item.status = 'cancelled'
+    item.speed = 0
+    emitTransfer(item)
+  } else if (ctl) {
+    ctl.abort?.(new CancelledError())
+  }
+  return true
 }
 
 function basenameRemote(p: string): string {
   return p.replace(/\/+$/, '').split('/').pop() ?? p
+}
+
+// ---------- 可取消的管道式传输引擎 ----------
+
+/** 单个 SFTP 读写请求的块大小（与 ssh2 fastXfer 默认一致） */
+const CHUNK_SIZE = 32 * 1024
+/** 管道并发请求数 */
+const PIPELINE = 64
+
+function sftpOpen(sftp: SFTPWrapper, p: string, flags: 'r' | 'w'): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    sftp.open(p, flags, (err, handle) => (err ? reject(err) : resolve(handle)))
+  })
+}
+
+/**
+ * 将外部 Promise 与传输中止信号竞争。
+ * 中止（取消/看门狗超时/连接断开）可作用于引擎所有阶段，包括 open/lstat/readdir
+ * 等在死连接上回调永不触发、且无法自行失败的 SFTP 操作。
+ */
+function withAbort<T>(p: Promise<T>, ctl: TransferCtl | undefined): Promise<T> {
+  if (!ctl) return p
+  return new Promise<T>((resolve, reject) => {
+    const abortP = new Promise<never>((_, rej) => {
+      ctl.abort = err => rej(err)
+    })
+    abortP.catch(() => {})
+    let settled = false
+    const done = (fn: () => void) => {
+      if (settled) return
+      settled = true
+      fn()
+    }
+    p.then(v => done(() => resolve(v)), e => done(() => reject(e)))
+    abortP.then(() => {}, e => done(() => reject(e)))
+  })
+}
+
+function sftpClose(sftp: SFTPWrapper, handle: Buffer): void {
+  sftp.close(handle, () => {})
+}
+
+async function uploadEntry(
+  sessionId: string,
+  item: TransferItem,
+  ctx: { baseTransferred: number },
+  localPath: string,
+  remotePath: string,
+) {
+  const sftp = await getSftp(sessionId)
+  const st = await fsp.stat(localPath)
+
+  if (st.isDirectory()) {
+    const ctl = ctls.get(item.id)
+    if (ctl?.cancelled) throw new CancelledError()
+    if (ctl) ctl.lastProgress = Date.now()
+    await withAbort(ensureRemoteDir(sftp, remotePath), ctl)
+    const children = await fsp.readdir(localPath)
+    for (const child of children) {
+      await uploadEntry(sessionId, item, ctx, path.join(localPath, child), joinRemote(remotePath, child))
+    }
+    return
+  }
+
+  item.status = 'active'
+  emitTransfer(item)
+
+  const ctl = ctls.get(item.id)
+  if (ctl?.cancelled) throw new CancelledError()
+  if (ctl) ctl.lastProgress = Date.now()
+
+  let lastTs = Date.now()
+  let lastBytes = 0
+  await putFile(sftp, localPath, remotePath, st.size, ctl, sent => {
+    item.transferred = ctx.baseTransferred + sent
+    const now = Date.now()
+    if (now - lastTs > 300) {
+      const instant = ((sent - lastBytes) * 1000) / (now - lastTs)
+      item.speed = item.speed > 0 ? item.speed * 0.6 + instant * 0.4 : instant
+      lastTs = now
+      lastBytes = sent
+      emitTransfer(item)
+    }
+  })
+
+  ctx.baseTransferred += st.size
+  item.transferred = ctx.baseTransferred
+}
+
+/**
+ * 管道式上传：本地分块读取 + 并发 SFTP write。
+ * 相比 fastPut 增加取消支持、进度回调与超时中止能力。
+ */
+async function putFile(
+  sftp: SFTPWrapper,
+  localPath: string,
+  remotePath: string,
+  fileSize: number,
+  ctl: TransferCtl | undefined,
+  onProgress: (sent: number) => void,
+): Promise<void> {
+  // 排队等待期间不计入看门狗，开始传输时重置
+  if (ctl) ctl.lastProgress = Date.now()
+  const handle = await withAbort(sftpOpen(sftp, remotePath, 'w'), ctl)
+  const fd = await fsp.open(localPath, 'r')
+  try {
+    await new Promise<void>((resolve, reject) => {
+      let offset = 0
+      let inFlight = 0
+      let settled = false
+      const fail = (err: Error) => {
+        if (settled) return
+        settled = true
+        reject(err)
+      }
+      if (ctl) ctl.abort = fail
+      const pump = () => {
+        if (settled) return
+        if (ctl?.cancelled) return fail(new CancelledError())
+        if (offset >= fileSize) {
+          if (inFlight === 0) {
+            settled = true
+            resolve()
+          }
+          return
+        }
+        const pos = offset
+        const len = Math.min(CHUNK_SIZE, fileSize - offset)
+        offset += len
+        inFlight++
+        const buf = Buffer.allocUnsafe(len)
+        fd.read(buf, 0, len, pos)
+          .then(() => {
+            if (settled) {
+              inFlight--
+              return
+            }
+            sftp.write(handle, buf, 0, len, pos, err => {
+              inFlight--
+              if (settled) return
+              if (err) return fail(err instanceof Error ? err : new Error(String(err)))
+              if (ctl) ctl.lastProgress = Date.now()
+              onProgress(pos + len)
+              pump()
+            })
+          })
+          .catch((err: Error) => {
+            inFlight--
+            fail(err)
+          })
+      }
+      for (let i = 0; i < PIPELINE; i++) pump()
+    })
+  } finally {
+    if (ctl) ctl.abort = null
+    sftpClose(sftp, handle)
+    await fd.close().catch(() => {})
+  }
 }
 
 async function downloadEntry(
@@ -435,15 +620,24 @@ async function downloadEntry(
   localPath: string,
 ) {
   const sftp = await getSftp(sessionId)
-  const stats = await new Promise<import('ssh2').Stats>((resolve, reject) => {
-    sftp.lstat(remotePath, (err, s) => (err ? reject(err) : resolve(s)))
-  })
+  const ctl0 = ctls.get(item.id)
+  if (ctl0?.cancelled) throw new CancelledError()
+  if (ctl0) ctl0.lastProgress = Date.now()
+  const stats = await withAbort(
+    new Promise<import('ssh2').Stats>((resolve, reject) => {
+      sftp.lstat(remotePath, (err, s) => (err ? reject(err) : resolve(s)))
+    }),
+    ctl0,
+  )
 
   if (stats.isDirectory()) {
     await fsp.mkdir(localPath, { recursive: true })
-    const entries = await new Promise<{ filename: string }[]>((resolve, reject) => {
-      sftp.readdir(remotePath, (err, list) => (err ? reject(err) : resolve(list)))
-    })
+    const entries = await withAbort(
+      new Promise<{ filename: string }[]>((resolve, reject) => {
+        sftp.readdir(remotePath, (err, list) => (err ? reject(err) : resolve(list)))
+      }),
+      ctl0,
+    )
     for (const e of entries) {
       await downloadEntry(
         sessionId,
@@ -456,30 +650,92 @@ async function downloadEntry(
     return
   }
 
-  const fileSize = Number(stats.size)
   item.status = 'active'
   emitTransfer(item)
 
+  const fileSize = Number(stats.size)
+  const ctl = ctl0
+  if (ctl?.cancelled) throw new CancelledError()
+  if (ctl) ctl.lastProgress = Date.now()
+
   let lastTs = Date.now()
   let lastBytes = 0
-  await new Promise<void>((resolve, reject) => {
-    sftp.fastGet(remotePath, localPath, {
-      step: (sent: number) => {
-        item.transferred = ctx.baseTransferred + sent
-        const now = Date.now()
-        if (now - lastTs > 300) {
-          const instant = ((sent - lastBytes) * 1000) / (now - lastTs)
-          item.speed = item.speed > 0 ? item.speed * 0.6 + instant * 0.4 : instant
-          lastTs = now
-          lastBytes = sent
-          emitTransfer(item)
-        }
-      },
-    }, err => (err ? reject(err) : resolve()))
+  await getFile(sftp, remotePath, localPath, fileSize, ctl, sent => {
+    item.transferred = ctx.baseTransferred + sent
+    const now = Date.now()
+    if (now - lastTs > 300) {
+      const instant = ((sent - lastBytes) * 1000) / (now - lastTs)
+      item.speed = item.speed > 0 ? item.speed * 0.6 + instant * 0.4 : instant
+      lastTs = now
+      lastBytes = sent
+      emitTransfer(item)
+    }
   })
 
   ctx.baseTransferred += fileSize
   item.transferred = ctx.baseTransferred
+}
+
+/** 管道式下载：并发 SFTP read + 本地按偏移写入 */
+async function getFile(
+  sftp: SFTPWrapper,
+  remotePath: string,
+  localPath: string,
+  fileSize: number,
+  ctl: TransferCtl | undefined,
+  onProgress: (received: number) => void,
+): Promise<void> {
+  // 排队等待期间不计入看门狗，开始传输时重置
+  if (ctl) ctl.lastProgress = Date.now()
+  const handle = await withAbort(sftpOpen(sftp, remotePath, 'r'), ctl)
+  const fd = await fsp.open(localPath, 'w')
+  try {
+    await new Promise<void>((resolve, reject) => {
+      let offset = 0
+      let inFlight = 0
+      let settled = false
+      const fail = (err: Error) => {
+        if (settled) return
+        settled = true
+        reject(err)
+      }
+      if (ctl) ctl.abort = fail
+      const pump = () => {
+        if (settled) return
+        if (ctl?.cancelled) return fail(new CancelledError())
+        if (offset >= fileSize) {
+          if (inFlight === 0) {
+            settled = true
+            resolve()
+          }
+          return
+        }
+        const pos = offset
+        const len = Math.min(CHUNK_SIZE, fileSize - offset)
+        offset += len
+        inFlight++
+        const buf = Buffer.allocUnsafe(len)
+        sftp.read(handle, buf, 0, len, pos, (err, bytesRead) => {
+          inFlight--
+          if (settled) return
+          if (err) return fail(err instanceof Error ? err : new Error(String(err)))
+          fd.write(buf, 0, bytesRead, pos)
+            .then(() => {
+              if (settled) return
+              if (ctl) ctl.lastProgress = Date.now()
+              onProgress(pos + bytesRead)
+              pump()
+            })
+            .catch((werr: Error) => fail(werr))
+        })
+      }
+      for (let i = 0; i < PIPELINE; i++) pump()
+    })
+  } finally {
+    if (ctl) ctl.abort = null
+    sftpClose(sftp, handle)
+    await fd.close().catch(() => {})
+  }
 }
 
 export { remoteExists }

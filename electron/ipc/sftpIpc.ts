@@ -29,4 +29,5 @@ export function registerSftpIpc() {
     (_e, sessionId: string, remotePaths: string[], localDir: string) =>
       sftp.download(sessionId, remotePaths, localDir),
   )
+  ipcMain.handle('sftp:cancelTransfer', (_e, id: string) => sftp.cancelTransfer(id))
 }

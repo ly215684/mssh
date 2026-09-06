@@ -29,7 +29,7 @@ export function SftpView({ tab }: { tab: SessionTab }) {
   useEffect(() => {
     const off = window.api.onTransfer(item => {
       if (item.connectionId !== tab.connectionId) return
-      if (item.status !== 'done' && item.status !== 'error') return
+      if (item.status !== 'done' && item.status !== 'error' && item.status !== 'cancelled') return
       window.clearTimeout(refreshTimer.current)
       refreshTimer.current = window.setTimeout(() => {
         if (item.direction === 'upload') remoteRef.current?.refresh()

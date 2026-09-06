@@ -84,6 +84,8 @@ export interface RendererApi {
   /** 上传（支持目录递归），返回传输任务 id 列表 */
   sftpUpload: (sessionId: string, localPaths: string[], remoteDir: string) => Promise<string[]>
   sftpDownload: (sessionId: string, remotePaths: string[], localDir: string) => Promise<string[]>
+  /** 取消传输任务（等待中立即取消；进行中的中断后续写入） */
+  cancelTransfer: (id: string) => Promise<boolean>
   /** 传输进度事件（返回取消订阅函数） */
   onTransfer: (cb: (item: TransferItem) => void) => () => void
 

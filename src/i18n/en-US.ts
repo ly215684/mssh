@@ -228,6 +228,7 @@ export default {
   'sftp.up': 'Parent directory',
   'sftp.selected': '{count} selected',
   'sftp.clearFinished': 'Clear finished items',
+  'sftp.cancel': 'Cancel transfer',
   'sftp.noSession': 'SSH session not connected, remote files unavailable',
   'sftp.size': 'Size',
   'sftp.mtime': 'Modified',

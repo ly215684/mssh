@@ -40,6 +40,8 @@ export interface TerminalSettings {
   cursorBlink: boolean
   scrollback: number
   bellStyle: 'none' | 'sound'
+  /** 远程文本编辑器允许的最大文件大小（MB） */
+  editorMaxSizeMB: number
 }
 
 /** SSH 连接设置 */
@@ -223,6 +225,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     cursorBlink: true,
     scrollback: 5000,
     bellStyle: 'none',
+    editorMaxSizeMB: 2,
   },
   ssh: {
     keepaliveInterval: 30,

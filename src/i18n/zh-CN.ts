@@ -280,6 +280,8 @@ export default {
   'settings.bell': '终端响铃',
   'settings.bellNone': '关闭',
   'settings.bellSound': '声音',
+  'settings.editorMaxSize': '编辑器文件上限（MB）',
+  'settings.editorMaxSizeDesc': '远程文本编辑器可打开的最大文件大小，超过此限制的文件会拒绝打开',
   'settings.keepalive': '保活间隔（秒）',
   'settings.keepaliveDesc': '空闲时定期向服务器发送探测包，防止 NAT/防火墙回收空闲链路；0 表示禁用（不建议）',
   'settings.timeout': '连接超时（秒）',

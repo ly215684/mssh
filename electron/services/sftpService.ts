@@ -122,8 +122,11 @@ export async function home(sessionId: string): Promise<string> {
 
 // ---------- 文件内容读写（文本编辑） ----------
 
-/** 编辑器允许的最大文件大小（2 MB） */
-const EDIT_MAX_BYTES = 2 * 1024 * 1024
+/** 获取编辑器允许的最大文件大小（字节），从设置动态读取 */
+function getEditorMaxBytes(): number {
+  const mb = getAll().settings.terminal.editorMaxSizeMB
+  return Math.max(1, Math.min(mb, 1024)) * 1024 * 1024
+}
 
 /** 判断字节是否可能是二进制（含 NUL 字节） */
 function isBinaryBuf(buf: Buffer): boolean {
@@ -140,9 +143,13 @@ export function readFile(sessionId: string, remotePath: string): Promise<string>
         sftp.stat(remotePath, (err, stats) => {
           if (err) return reject(err)
           const size = Number(stats.size ?? 0)
-          if (size > EDIT_MAX_BYTES) {
+          const maxBytes = getEditorMaxBytes()
+          const maxMB = maxBytes / 1024 / 1024
+          if (size > maxBytes) {
             return reject(
-              new Error(`文件过大（${(size / 1024 / 1024).toFixed(1)} MB），超过编辑器上限 2 MB，请用其它方式编辑。`),
+              new Error(
+                `文件过大（${(size / 1024 / 1024).toFixed(1)} MB），超过编辑器上限 ${maxMB} MB，请用其它方式编辑。`,
+              ),
             )
           }
           sftp.readFile(remotePath, (e, data) => {

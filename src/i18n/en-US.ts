@@ -286,6 +286,8 @@ export default {
   'settings.bell': 'Terminal bell',
   'settings.bellNone': 'Off',
   'settings.bellSound': 'Sound',
+  'settings.editorMaxSize': 'Editor file limit (MB)',
+  'settings.editorMaxSizeDesc': 'Maximum file size the remote text editor can open; files larger than this will be rejected',
   'settings.keepalive': 'Keep-alive interval (s)',
   'settings.keepaliveDesc': 'Sends periodic probes on idle connections to keep NAT/firewalls from dropping the link; 0 disables (not recommended)',
   'settings.timeout': 'Connect timeout (s)',

@@ -2,7 +2,7 @@ import { FolderOpen, Globe, Server, SquareTerminal } from 'lucide-react'
 import { useAppStore } from '../../stores/appStore'
 import { useUiStore } from '../../stores/uiStore'
 import { useT } from '../../i18n/I18nProvider'
-import { Button, Input, message, Modal, Segmented, Select, Switch, Tabs } from '../../components/ui'
+import { Button, Input, message, Modal, Select, Switch, Tabs } from '../../components/ui'
 import { useState } from 'react'
 
 type SettingsTab = 'general' | 'terminal' | 'ssh'
@@ -94,7 +94,7 @@ export function SettingsModal() {
                 />
               </Row>
               <Row label={t('settings.cursorStyle')}>
-                <Segmented
+                <Select
                   value={settings.terminal.cursorStyle}
                   onChange={v => setTerminal({ cursorStyle: v as typeof settings.terminal.cursorStyle })}
                   options={[
@@ -117,14 +117,20 @@ export function SettingsModal() {
                   onChange={e => setTerminal({ scrollback: number(e.target.value, 5000) })}
                 />
               </Row>
+              <Row label={t('settings.editorMaxSize')} desc={t('settings.editorMaxSizeDesc')}>
+                <Input
+                  type="number"
+                  min={1}
+                  max={1024}
+                  step={1}
+                  value={settings.terminal.editorMaxSizeMB}
+                  onChange={e => setTerminal({ editorMaxSizeMB: number(e.target.value, 2) })}
+                />
+              </Row>
               <Row label={t('settings.bell')}>
-                <Segmented
-                  value={settings.terminal.bellStyle}
-                  onChange={v => setTerminal({ bellStyle: v as typeof settings.terminal.bellStyle })}
-                  options={[
-                    { label: t('settings.bellNone'), value: 'none' },
-                    { label: t('settings.bellSound'), value: 'sound' },
-                  ]}
+                <Switch
+                  checked={settings.terminal.bellStyle === 'sound'}
+                  onChange={v => setTerminal({ bellStyle: v ? 'sound' : 'none' })}
                 />
               </Row>
             </div>

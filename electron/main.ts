@@ -71,7 +71,18 @@ app.on('window-all-closed', () => {
   }
 })
 
-// 关闭应用时断开所有 SSH 连接（含 SFTP 通道），避免服务器端残留挂起会话
-app.on('before-quit', () => {
+// 关闭应用时断开所有 SSH 连接（含 SFTP 通道），避免服务器端残留挂起会话。
+// conn.end() 是异步的，需要给 TCP 时间发送 FIN 包，否则进程退出后服务器端会话残留。
+let isQuitting = false
+app.on('before-quit', e => {
+  if (isQuitting) return
+  e.preventDefault()
+  isQuitting = true
   disconnectAll()
+  // 500ms 足以让 TCP 发送 FIN；兜底 2s 强制退出，避免卡死
+  const force = setTimeout(() => app.exit(0), 2000)
+  setTimeout(() => {
+    clearTimeout(force)
+    app.exit(0)
+  }, 500)
 })

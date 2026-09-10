@@ -9,6 +9,15 @@ const DOC_EXTS = new Set([
 const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'tiff'])
 const ARCHIVE_EXTS = new Set(['zip', 'rar', '7z', 'tar', 'gz', 'bz2', 'xz', 'tgz', 'tbz2', 'txz', 'zst'])
 
+/** 双击远程文件时不进内置编辑器、直接下载的二进制扩展名 */
+export const BINARY_EXTS = new Set([
+  'exe', 'msi', 'dll', 'so', 'dylib', 'bin', 'o', 'a', 'class', 'pyc', 'wasm', 'img', 'iso', 'dmg',
+  'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'ico', 'icns', 'svgz', 'pdf', 'psd',
+  'mp3', 'wav', 'flac', 'ogg', 'm4a', 'mp4', 'mkv', 'avi', 'mov', 'flv', 'wmv', 'webm',
+  'woff', 'woff2', 'ttf', 'otf', 'eot',
+  'db', 'sqlite', 'bak', 'swp', 'deb', 'rpm', 'apk',
+])
+
 /** 是否为可解压的压缩包 */
 export function isArchive(name: string): boolean {
   const lower = name.toLowerCase()

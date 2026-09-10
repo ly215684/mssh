@@ -14,8 +14,6 @@ interface FileEditorProps {
   onClose: () => void
 }
 
-let themesRegistered = false
-
 /**
  * 远程文本文件编辑器（基于 Monaco Editor）
  * - 通过 SFTP 读取/写入文本内容
@@ -26,6 +24,8 @@ let themesRegistered = false
 export function FileEditor({ open, sessionId, path, onClose }: FileEditorProps) {
   const t = useT()
   const theme = useAppStore(s => s.settings.theme)
+  // 主题注册标记（Monaco 为全局单例，每次挂载最多注册一次即可）
+  const themesRegisteredRef = useRef(false)
 
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -44,9 +44,9 @@ export function FileEditor({ open, sessionId, path, onClose }: FileEditorProps) 
 
   // 注册自定义主题（仅一次）
   useEffect(() => {
-    if (!themesRegistered) {
+    if (!themesRegisteredRef.current) {
       registerThemes()
-      themesRegistered = true
+      themesRegisteredRef.current = true
     }
   }, [])
 

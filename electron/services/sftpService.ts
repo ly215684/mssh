@@ -1,11 +1,11 @@
-import type { SFTPWrapper } from 'ssh2'
+import type { SFTPWrapper, Stats } from 'ssh2'
 import { randomUUID } from 'node:crypto'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
 import { BrowserWindow, dialog } from 'electron'
 import type { FileInfo, TransferItem } from '../shared/types'
 import { getAll } from './configStore'
-import { exec, getSession, onSessionClosed, type SshSession } from './sshService'
+import { execCommand, getSession, onSessionClosed, type SshSession } from './sshService'
 import { sortEntries } from './localFs'
 
 function asSession(id: string): SshSession | undefined {
@@ -204,15 +204,13 @@ function remoteExtractCmd(filePath: string): string | null {
 export async function extract(sessionId: string, remotePath: string): Promise<string> {
   const cmd = remoteExtractCmd(remotePath)
   if (!cmd) throw new Error(`不支持的压缩格式：${remotePath}`)
-  // 2>&1 合并 stderr，便于在命令失败时返回错误信息
-  const out = await exec(sessionId, `${cmd} 2>&1`)
-  // exec 只返回 stdout，不区分退出码；这里再跑一次带退出码的检查
-  const check = await exec(sessionId, `${cmd} >/dev/null 2>&1; echo $?`)
-  const code = check.trim()
-  if (code !== '0') {
-    throw new Error(out.trim() || `解压失败（退出码 ${code}）`)
+  // 一次执行同时拿到退出码与输出，避免同一命令重复执行
+  // （对 gunzip 等有副作用的命令会导致二次解压失败）
+  const res = await execCommand(sessionId, cmd)
+  if (res.code !== 0) {
+    throw new Error(res.stderr.trim() || res.stdout.trim() || `解压失败（退出码 ${res.code}）`)
   }
-  return out
+  return res.stdout
 }
 
 /** 远程路径拼接（POSIX） */
@@ -320,7 +318,7 @@ async function calcLocalTotalSize(p: string): Promise<number> {
 
 /** 递归计算远程路径总大小（目录内所有文件之和） */
 async function calcRemoteTotalSize(sftp: SFTPWrapper, p: string): Promise<number> {
-  const stats = await new Promise<import('ssh2').Stats>((resolve, reject) => {
+  const stats = await new Promise<Stats>((resolve, reject) => {
     sftp.lstat(p, (err, s) => (err ? reject(err) : resolve(s)))
   })
   if (!stats.isDirectory()) return Number(stats.size)
@@ -758,7 +756,7 @@ async function downloadEntry(
   if (ctl0?.cancelled) throw new CancelledError()
   if (ctl0) ctl0.lastProgress = Date.now()
   const stats = await withAbort(
-    new Promise<import('ssh2').Stats>((resolve, reject) => {
+    new Promise<Stats>((resolve, reject) => {
       sftp.lstat(remotePath, (err, s) => (err ? reject(err) : resolve(s)))
     }),
     ctl0,

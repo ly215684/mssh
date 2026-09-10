@@ -81,6 +81,7 @@ async function ensureSession(
         [connectionId]: { sshSessionId: info.sessionId, info, status: 'connected' },
       },
     }))
+    bindSession(connectionId, info.sessionId)
     return info.sessionId
   } catch (e) {
     set(s => ({
@@ -123,6 +124,21 @@ function patchConnSession(connectionId: string, patch: Partial<ConnSession>) {
   })
 }
 
+/** sessionId → connectionId 反向索引（onAnySshExit O(1) 查找） */
+const sessionOwners = new Map<string, string>()
+
+/** 记录新建立的 SSH 会话归属 */
+function bindSession(connectionId: string, sessionId: string) {
+  sessionOwners.set(sessionId, connectionId)
+}
+
+/** 连接的会话条目被移除时，清理其所有反向索引 */
+function unbindConnection(connectionId: string) {
+  for (const [sid, cid] of sessionOwners) {
+    if (cid === connectionId) sessionOwners.delete(sid)
+  }
+}
+
 /** 排定第 attempt 次重试；超过上限则放弃（回到手动重连） */
 function scheduleRetry(connectionId: string, attempt: number) {
   clearRetryTimer(connectionId)
@@ -154,6 +170,7 @@ async function attemptReconnect(connectionId: string, attempt: number) {
       status: 'connected',
       retryAttempt: undefined,
     })
+    bindSession(connectionId, info.sessionId)
     clearRetryTimer(connectionId)
   } catch (e) {
     patchConnSession(connectionId, {
@@ -172,9 +189,9 @@ export function initSshEvents() {
   if (sshEventsBound) return
   sshEventsBound = true
   window.api.onAnySshExit((sessionId, reason) => {
-    const { connSessions, markClosed } = useSessionStore.getState()
-    const entry = Object.entries(connSessions).find(([, v]) => v.sshSessionId === sessionId)
-    if (entry) markClosed(entry[0], reason)
+    const { markClosed } = useSessionStore.getState()
+    const connectionId = sessionOwners.get(sessionId)
+    if (connectionId) markClosed(connectionId, reason)
   })
 }
 
@@ -283,6 +300,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         delete connSessions[tab.connectionId]
         return { connSessions }
       })
+      unbindConnection(tab.connectionId)
     }
     get().saveLayout()
   },
@@ -303,6 +321,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       delete connSessions[connectionId]
       return { connSessions }
     })
+    unbindConnection(connectionId)
     await ensureSession(get, set, connectionId)
   },
 
@@ -330,11 +349,15 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     }
 
     set(patch)
+    unbindConnection(connectionId)
     get().saveLayout()
   },
 
   markClosed: (connectionId, reason) => {
     const autoReconnect = useAppStore.getState().settings.ssh.autoReconnect
+    // 清理该会话的反向索引（断开后原 sessionId 失效）
+    const closed = get().connSessions[connectionId]
+    if (closed?.sshSessionId) sessionOwners.delete(closed.sshSessionId)
     set(s => {
       const cur = s.connSessions[connectionId]
       if (!cur || cur.status === 'closed') return {}

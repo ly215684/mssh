@@ -1,11 +1,11 @@
 import { app } from 'electron'
-import { exec } from 'node:child_process'
+import { execFile } from 'node:child_process'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import type { FileInfo } from '../shared/types'
 
-const execAsync = promisify(exec)
+const execFileAsync = promisify(execFile)
 
 /** 列出本地目录 */
 export async function listDir(dir: string): Promise<FileInfo[]> {
@@ -83,46 +83,78 @@ export async function touchFile(p: string): Promise<void> {
   await fsp.writeFile(p, '')
 }
 
+/** PowerShell 单引号字面量转义（'' 转义 '） */
+function psq(s: string): string {
+  return s.replace(/'/g, "''")
+}
+
 /**
  * 本地解压：根据扩展名调用系统命令。
  * - .tar* / .zip：Windows 10+ 自带 tar（bsdtar 支持 zip）
  * - .7z：调用 7z（需安装，PATH 中）
  * - .gz/.bz2/.xz：需要对应工具（Windows 需安装）
+ *
+ * 通过 execFile 分离参数传递路径，不走 shell 解释，避免文件名中的
+ * 引号 / `$()` / 反引号等特殊字符被注入执行。
  */
 export async function extract(filePath: string): Promise<void> {
   const lower = filePath.toLowerCase()
   const dir = path.dirname(filePath)
   const isWin = process.platform === 'win32'
-  let cmd: string | null = null
+  let file: string
+  let args: string[]
 
   if (lower.endsWith('.tar.gz') || lower.endsWith('.tgz')) {
-    cmd = `tar -xzf "${filePath}" -C "${dir}"`
+    file = 'tar'
+    args = ['-xzf', filePath, '-C', dir]
   } else if (lower.endsWith('.tar.bz2') || lower.endsWith('.tbz2')) {
-    cmd = `tar -xjf "${filePath}" -C "${dir}"`
+    file = 'tar'
+    args = ['-xjf', filePath, '-C', dir]
   } else if (lower.endsWith('.tar.xz') || lower.endsWith('.txz')) {
-    cmd = `tar -xJf "${filePath}" -C "${dir}"`
+    file = 'tar'
+    args = ['-xJf', filePath, '-C', dir]
   } else if (lower.endsWith('.tar')) {
-    cmd = `tar -xf "${filePath}" -C "${dir}"`
+    file = 'tar'
+    args = ['-xf', filePath, '-C', dir]
   } else if (lower.endsWith('.zip')) {
     // Windows 优先用 PowerShell Expand-Archive，失败回退 tar
     if (isWin) {
-      cmd = `powershell -NoProfile -Command "Expand-Archive -LiteralPath '${filePath}' -DestinationPath '${dir}' -Force"`
+      file = 'powershell.exe'
+      args = [
+        '-NoProfile',
+        '-Command',
+        `Expand-Archive -LiteralPath '${psq(filePath)}' -DestinationPath '${psq(dir)}' -Force`,
+      ]
     } else {
-      cmd = `unzip -o "${filePath}" -d "${dir}"`
+      file = 'unzip'
+      args = ['-o', filePath, '-d', dir]
     }
   } else if (lower.endsWith('.7z')) {
-    cmd = `7z x "${filePath}" -o"${dir}" -y`
+    file = '7z'
+    args = ['x', filePath, `-o${dir}`, '-y']
   } else if (lower.endsWith('.gz')) {
-    cmd = isWin
-      ? `powershell -NoProfile -Command "$s=[IO.File]::OpenRead('${filePath}'); $g=New-Object IO.Compression.GzipStream($s,[IO.Compression.CompressionMode]::Decompress); $fs=[IO.File]::Create('${filePath.slice(0,-3)}'); $g.CopyTo($fs); $fs.Close(); $g.Close()"`
-      : `gunzip -k -f "${filePath}"`
+    if (isWin) {
+      file = 'powershell.exe'
+      args = [
+        '-NoProfile',
+        '-Command',
+        `$s=[IO.File]::OpenRead('${psq(filePath)}');` +
+          `$g=New-Object IO.Compression.GzipStream($s,[IO.Compression.CompressionMode]::Decompress);` +
+          `$fs=[IO.File]::Create('${psq(filePath.slice(0, -3))}');` +
+          `$g.CopyTo($fs); $fs.Close(); $g.Close()`,
+      ]
+    } else {
+      file = 'gunzip'
+      args = ['-k', '-f', filePath]
+    }
   } else {
     throw new Error(`不支持的压缩格式：${filePath}`)
   }
 
   try {
-    await execAsync(cmd)
-  } catch (e: any) {
-    throw new Error(e.stderr?.trim() || e.message || '解压失败')
+    await execFileAsync(file, args, { windowsHide: true })
+  } catch (e: unknown) {
+    const err = (e ?? {}) as { stderr?: string; message?: string }
+    throw new Error(err.stderr?.trim() || err.message || '解压失败')
   }
 }

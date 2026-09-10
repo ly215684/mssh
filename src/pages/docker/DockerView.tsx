@@ -46,11 +46,7 @@ import {
   type MenuItem,
 } from '../../components/ui'
 import { baseName, parentPath } from '../../utils/files'
-
-/** shell 单引号安全包裹 */
-function shq(s: string): string {
-  return `'${s.replace(/'/g, `'\\''`)}'`
-}
+import { shq } from '../../utils/shell'
 
 /** 解析 docker --format '{{json .}}' 的 JSONL 输出 */
 function parseJsonl(out: string): Record<string, unknown>[] {
@@ -528,6 +524,9 @@ export function DockerView({ tab }: { tab: SessionTab }) {
   )
 }
 
+/** 日志文本上限：超过后只保留尾部，避免超大日志拖垮渲染 */
+const MAX_LOG_CHARS = 10_000_000
+
 /** 容器日志弹窗：支持快照查看与跟随（-f）流式输出 */
 function LogsModal({
   sessionId,
@@ -550,8 +549,14 @@ function LogsModal({
 
   // 流事件订阅（挂载一次）
   useEffect(() => {
+    // 订阅签名为 (id, data, kind)：docker logs 会把容器 stderr（含报错）走
+    // stderr 通道，因此不过滤 kind，两路输出统一追加展示
     const offData = window.api.onSshStreamData((id, chunk) => {
-      if (id === streamIdRef.current) setText(p => p + chunk)
+      if (id !== streamIdRef.current) return
+      setText(p => {
+        const next = p + chunk
+        return next.length > MAX_LOG_CHARS ? next.slice(-MAX_LOG_CHARS / 2) : next
+      })
     })
     const offClose = window.api.onSshStreamClose(id => {
       if (id === streamIdRef.current) {

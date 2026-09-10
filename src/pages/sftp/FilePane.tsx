@@ -39,6 +39,7 @@ import {
   fileIconCls,
   formatSize,
   isArchive,
+  BINARY_EXTS,
   extOf,
   joinPath,
   matchFilter,
@@ -70,15 +71,6 @@ const SRC_MIME: Record<TransferSource, string> = {
 }
 
 const FILTERS: FilterKey[] = ['all', 'docs', 'images', 'archives']
-
-/** 双击远程文件时不进内置编辑器、直接下载的二进制扩展名 */
-const BINARY_EXTS = new Set([
-  'exe', 'msi', 'dll', 'so', 'dylib', 'bin', 'o', 'a', 'class', 'pyc', 'wasm', 'img', 'iso', 'dmg',
-  'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'ico', 'icns', 'svgz', 'pdf', 'psd',
-  'mp3', 'wav', 'flac', 'ogg', 'm4a', 'mp4', 'mkv', 'avi', 'mov', 'flv', 'wmv', 'webm',
-  'woff', 'woff2', 'ttf', 'otf', 'eot',
-  'db', 'sqlite', 'bak', 'swp', 'deb', 'rpm', 'apk',
-])
 
 function isAbsolutePath(p: string): boolean {
   // Windows: 'C:'、'C:\'、'C:\Users\x'、UNC '\\srv\share'；POSIX: '/...'

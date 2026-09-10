@@ -17,6 +17,9 @@ export interface SshSession {
 
 const sessions = new Map<string, SshSession>()
 
+/** 允许连续丢失的心跳次数，超过即判定断线（短暂网络抖动不轻易断开） */
+const KEEPALIVE_COUNT_MAX = 5
+
 /** 会话关闭钩子（用于清理依赖该会话的资源，如传输任务） */
 type SessionCloseHook = (sessionId: string) => void
 const closeHooks: SessionCloseHook[] = []
@@ -183,8 +186,8 @@ export function connect(cfg: Connection, sshSettings: SshSettings): Promise<SshS
       readyTimeout: sshSettings.connectTimeout * 1000,
       keepaliveInterval:
         sshSettings.keepaliveInterval > 0 ? sshSettings.keepaliveInterval * 1000 : 0,
-      // 允许连续丢失 5 次心跳才判定断线（默认 3 次），短暂网络抖动不轻易断开
-      keepaliveCountMax: 5,
+      // 允许连续丢失多次心跳才判定断线，短暂网络抖动不轻易断开
+      keepaliveCountMax: KEEPALIVE_COUNT_MAX,
       algorithms: {
         compress: sshSettings.compression ? ['zlib@openssh.com', 'zlib', 'none'] : undefined,
       },

@@ -26,6 +26,7 @@ import { useSessionStore } from '../../stores/sessionStore'
 import { useAppStore } from '../../stores/appStore'
 import { useT } from '../../i18n/I18nProvider'
 import { parentPath } from '../../utils/files'
+import { shq } from '../../utils/shell'
 import {
   Button,
   Empty,
@@ -333,11 +334,6 @@ async function writeCrontab(sessionId: string, content: string): Promise<void> {
 /** 任务显示名：备注优先，其次命令 */
 function jobName(j: CronJob): string {
   return j.comment.trim() ? j.comment.split('\n')[0] : j.command
-}
-
-/** shell 单引号安全包裹 */
-function shq(s: string): string {
-  return `'${s.replace(/'/g, `'\\''`)}'`
 }
 
 /** 可识别为脚本的常见后缀 */

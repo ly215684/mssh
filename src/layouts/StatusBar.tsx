@@ -45,7 +45,8 @@ export function StatusBar() {
 
   const [stats, setStats] = useState<SysStats | null>(null)
 
-  // 连接成功后每 5 秒轮询远程资源占用
+  // 连接成功后轮询远程资源占用：10s 基础间隔，失败指数退避（上限 60s），
+  // 减少 sshStats（内部约 1.5s）对 SSH 通道的占用
   useEffect(() => {
     const sessionId = connSession?.sshSessionId
     if (connSession?.status !== 'connected' || !sessionId) {
@@ -54,19 +55,23 @@ export function StatusBar() {
     }
     let cancelled = false
     let timer: NodeJS.Timeout
+    let delay = 10_000
     const poll = async () => {
       try {
         const s = await window.api.sshStats(sessionId)
-        if (!cancelled) setStats(s)
+        if (cancelled) return
+        setStats(s)
+        delay = 10_000
       } catch {
-        // 静默失败，下次重试
+        // 静默失败并退避
+        delay = Math.min(delay * 2, 60_000)
       }
+      if (!cancelled) timer = setTimeout(poll, delay)
     }
     void poll()
-    timer = setInterval(poll, 5000)
     return () => {
       cancelled = true
-      clearInterval(timer)
+      clearTimeout(timer)
     }
   }, [connSession?.status, connSession?.sshSessionId])
 

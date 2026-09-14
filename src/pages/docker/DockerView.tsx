@@ -4,11 +4,13 @@ import {
   useRef,
   useState,
   type MouseEvent as ReactMouseEvent,
+  type ReactNode,
 } from 'react'
 import {
   ArrowUp,
   Boxes,
   CheckCircle2,
+  Download,
   FileText,
   Folder,
   Image as ImageIcon,
@@ -19,6 +21,7 @@ import {
   RotateCw,
   ScrollText,
   Square,
+  Terminal,
   Trash2,
   XCircle,
 } from 'lucide-react'
@@ -34,6 +37,7 @@ import { useT } from '../../i18n/I18nProvider'
 import {
   Button,
   Empty,
+  Input,
   Modal,
   Spinner,
   Switch,
@@ -110,6 +114,9 @@ export function DockerView({ tab }: { tab: SessionTab }) {
   }, [])
   const [logTarget, setLogTarget] = useState<DockerContainer | null>(null)
   const [composeOpen, setComposeOpen] = useState(false)
+  const [pullOpen, setPullOpen] = useState(false)
+  /** 从镜像启动：预填镜像名（如 image:tag），null 表示未打开 */
+  const [runTarget, setRunTarget] = useState<DockerImage | null>(null)
 
   const sessionId = status === 'connected' ? sshSessionId : null
 
@@ -281,8 +288,14 @@ export function DockerView({ tab }: { tab: SessionTab }) {
   /** 镜像行右键菜单 */
   const onImageCtx = useCallback(
     (e: ReactMouseEvent, im: DockerImage) => {
-      openContextMenu(e, [{ key: 'remove', label: t('docker.remove'), icon: <Trash2 size={14} />, danger: true }], key => {
-        if (key === 'remove') void removeImage(im)
+      const items: MenuItem[] = [
+        { key: 'run', label: t('docker.run'), icon: <Terminal size={14} /> },
+        { key: 'divider', label: '', divider: true },
+        { key: 'remove', label: t('docker.remove'), icon: <Trash2 size={14} />, danger: true },
+      ]
+      openContextMenu(e, items, key => {
+        if (key === 'run') setRunTarget(im)
+        else if (key === 'remove') void removeImage(im)
       })
     },
     [openContextMenu, t, removeImage],
@@ -302,6 +315,15 @@ export function DockerView({ tab }: { tab: SessionTab }) {
           {version && <span className="text-faint">&nbsp;· Docker {version}</span>}
         </span>
         <div className="flex-1" />
+        <Button
+          size="sm"
+          variant="primary"
+          icon={<Download size={14} />}
+          disabled={!sessionId}
+          onClick={() => setPullOpen(true)}
+        >
+          {t('docker.pull')}
+        </Button>
         <Button
           size="sm"
           variant="primary"
@@ -518,6 +540,21 @@ export function DockerView({ tab }: { tab: SessionTab }) {
           sessionId={sessionId}
           onClose={() => setComposeOpen(false)}
           onStarted={load}
+        />
+      )}
+      {pullOpen && sessionId && (
+        <PullImageModal
+          sessionId={sessionId}
+          onClose={() => setPullOpen(false)}
+          onDone={load}
+        />
+      )}
+      {runTarget && sessionId && (
+        <RunImageModal
+          sessionId={sessionId}
+          image={runTarget}
+          onClose={() => setRunTarget(null)}
+          onDone={load}
         />
       )}
     </div>
@@ -913,5 +950,436 @@ function ComposeModal({
         </pre>
       )}
     </Modal>
+  )
+}
+
+/** 拉取镜像：输入镜像名 → docker pull <image>（流式输出） */
+function PullImageModal({
+  sessionId,
+  onClose,
+  onDone,
+}: {
+  sessionId: string
+  onClose: () => void
+  onDone: () => void
+}) {
+  const t = useT()
+  const [image, setImage] = useState('')
+  const [phase, setPhase] = useState<'pick' | 'run'>('pick')
+  const [output, setOutput] = useState('')
+  const [code, setCode] = useState<number | null>(null)
+  const streamIdRef = useRef<string | null>(null)
+  const preRef = useRef<HTMLPreElement>(null)
+
+  useEffect(() => {
+    if (phase !== 'run') return
+    const offData = window.api.onSshStreamData((id, chunk) => {
+      if (id === streamIdRef.current) setOutput(p => p + chunk)
+    })
+    const offClose = window.api.onSshStreamClose((id, c) => {
+      if (id !== streamIdRef.current) return
+      streamIdRef.current = null
+      setCode(c)
+      if (c === 0) {
+        message.success(t('docker.pullDone'))
+        onDone()
+      }
+    })
+    return () => {
+      offData()
+      offClose()
+    }
+  }, [phase, onDone, t])
+
+  useEffect(() => {
+    if (preRef.current) preRef.current.scrollTop = preRef.current.scrollHeight
+  }, [output])
+
+  const handleClose = () => {
+    if (streamIdRef.current) {
+      window.api.sshStreamKill(streamIdRef.current)
+      streamIdRef.current = null
+    }
+    onClose()
+  }
+
+  const start = async () => {
+    const img = image.trim()
+    if (!img) {
+      void errorAlert(t('docker.pullFailed'), t('docker.invalidImage'))
+      return
+    }
+    setPhase('run')
+    setOutput('')
+    setCode(null)
+    try {
+      const sid = await window.api.sshExecStream(sessionId, `docker pull ${shq(img)}`)
+      streamIdRef.current = sid
+    } catch (e) {
+      setCode(1)
+      setOutput(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  return (
+    <Modal
+      open
+      onClose={handleClose}
+      maskClosable={false}
+      closable={phase === 'pick' || code !== null}
+      width={620}
+      title={
+        <span className="inline-flex items-center gap-2">
+          <Download size={15} className="text-accent" />
+          {t('docker.pullTitle')}
+        </span>
+      }
+      footer={
+        phase === 'pick' ? (
+          <>
+            <Button onClick={handleClose}>{t('common.cancel')}</Button>
+            <Button
+              variant="primary"
+              disabled={!image.trim()}
+              icon={<Download size={14} />}
+              onClick={() => void start()}
+            >
+              {t('docker.pull')}
+            </Button>
+          </>
+        ) : (
+          <>
+            {code === null ? (
+              <span className="text-xs text-dim inline-flex items-center gap-1.5 mr-auto">
+                <Loader2 size={13} className="animate-spin" />
+                {t('docker.pullRunning')}
+              </span>
+            ) : (
+              <span
+                className={`text-xs inline-flex items-center gap-1.5 mr-auto ${
+                  code === 0 ? 'text-accent' : 'text-danger'
+                }`}
+              >
+                {code === 0 ? <CheckCircle2 size={14} /> : <XCircle size={14} />}
+                {code === 0 ? t('docker.pullDone') : t('docker.pullFailed')}
+              </span>
+            )}
+            <Button onClick={handleClose}>{t('common.close')}</Button>
+          </>
+        )
+      }
+    >
+      {phase === 'pick' ? (
+        <div className="flex flex-col gap-2.5">
+          <div className="text-xs text-dim leading-relaxed">{t('docker.pullHint')}</div>
+          <Input
+            value={image}
+            onChange={e => setImage(e.target.value)}
+            placeholder={t('docker.pullPlaceholder')}
+            spellCheck={false}
+            autoFocus
+            className="font-mono"
+            onKeyDown={e => {
+              if (e.key === 'Enter') void start()
+            }}
+          />
+        </div>
+      ) : (
+        <pre
+          ref={preRef}
+          className="bg-term-bg text-term-fg font-mono text-xs leading-relaxed rounded-md border border-bd p-3 h-[52vh] overflow-auto whitespace-pre-wrap break-all m-0"
+        >
+          {output}
+        </pre>
+      )}
+    </Modal>
+  )
+}
+
+/** 从镜像启动容器：表单收集 name / ports / env / volumes / detach / cmd → docker run（流式输出） */
+function RunImageModal({
+  sessionId,
+  image,
+  onClose,
+  onDone,
+}: {
+  sessionId: string
+  image: DockerImage
+  onClose: () => void
+  onDone: () => void
+}) {
+  const t = useT()
+  const imageRef = image.tag === '<none>' || !image.tag
+    ? image.repository
+    : `${image.repository}:${image.tag}`
+  const [name, setName] = useState('')
+  const [ports, setPorts] = useState('')
+  const [env, setEnv] = useState('')
+  const [volumes, setVolumes] = useState('')
+  const [detach, setDetach] = useState(true)
+  const [cmd, setCmd] = useState('')
+  const [extraArgs, setExtraArgs] = useState('')
+  const [phase, setPhase] = useState<'pick' | 'run'>('pick')
+  const [output, setOutput] = useState('')
+  const [code, setCode] = useState<number | null>(null)
+  const streamIdRef = useRef<string | null>(null)
+  const preRef = useRef<HTMLPreElement>(null)
+
+  useEffect(() => {
+    if (phase !== 'run') return
+    const offData = window.api.onSshStreamData((id, chunk) => {
+      if (id === streamIdRef.current) setOutput(p => p + chunk)
+    })
+    const offClose = window.api.onSshStreamClose((id, c) => {
+      if (id !== streamIdRef.current) return
+      streamIdRef.current = null
+      setCode(c)
+      if (c === 0) {
+        message.success(t('docker.runDone'))
+        onDone()
+      }
+    })
+    return () => {
+      offData()
+      offClose()
+    }
+  }, [phase, onDone, t])
+
+  useEffect(() => {
+    if (preRef.current) preRef.current.scrollTop = preRef.current.scrollHeight
+  }, [output])
+
+  const handleClose = () => {
+    if (streamIdRef.current) {
+      window.api.sshStreamKill(streamIdRef.current)
+      streamIdRef.current = null
+    }
+    onClose()
+  }
+
+  /** 解析端口映射行：host:container[/proto] */
+  const parsePorts = (): string[] | null => {
+    const out: string[] = []
+    for (const raw of ports.split('\n')) {
+      const l = raw.trim()
+      if (!l) continue
+      // 校验形如 8080:80 / 127.0.0.1:8080:80 / 8080:80/tcp
+      if (!/^(?:[A-Za-z0-9._-]+:)?\d+:\d+(?:\/[a-z]+)?$/.test(l)) return null
+      out.push(l)
+    }
+    return out
+  }
+  /** 解析环境变量行：KEY=VALUE（KEY 不能含空格或 =） */
+  const parseEnv = (): string[] | null => {
+    const out: string[] = []
+    for (const raw of env.split('\n')) {
+      const l = raw.trim()
+      if (!l) continue
+      if (!/^[A-Za-z_][A-Za-z0-9_]*=.*$/.test(l)) return null
+      out.push(l)
+    }
+    return out
+  }
+  /** 解析卷挂载行：host:container[:mode] */
+  const parseVolumes = (): string[] => {
+    const out: string[] = []
+    for (const raw of volumes.split('\n')) {
+      const l = raw.trim()
+      if (!l) continue
+      out.push(l)
+    }
+    return out
+  }
+
+  const start = async () => {
+    // 校验
+    const portList = parsePorts()
+    if (portList === null) {
+      void errorAlert(t('docker.runFailed'), t('docker.invalidPort', { value: '' }))
+      return
+    }
+    const envList = parseEnv()
+    if (envList === null) {
+      void errorAlert(t('docker.runFailed'), t('docker.invalidEnv', { value: '' }))
+      return
+    }
+    const volList = parseVolumes()
+
+    const args: string[] = ['docker', 'run']
+    if (detach) args.push('-d')
+    const nameTrim = name.trim()
+    if (nameTrim) args.push('--name', nameTrim)
+    for (const p of portList) args.push('-p', p)
+    for (const e of envList) args.push('-e', e)
+    for (const v of volList) args.push('-v', v)
+    // 选项参数逐个 shq 包裹；额外参数作为 shell 片段插入到 image 之前（docker run 选项必须位于 image 之前）
+    const extraTrim = extraArgs.trim()
+    const cmdTrim = cmd.trim()
+    const shellCmd =
+      args.map(a => shq(a)).join(' ') +
+      (extraTrim ? ' ' + extraTrim : '') +
+      ' ' + shq(imageRef) +
+      (cmdTrim ? ' ' + cmdTrim : '')
+
+    setPhase('run')
+    setOutput('')
+    setCode(null)
+    try {
+      const sid = await window.api.sshExecStream(sessionId, shellCmd)
+      streamIdRef.current = sid
+    } catch (e) {
+      setCode(1)
+      setOutput(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  return (
+    <Modal
+      open
+      onClose={handleClose}
+      maskClosable={false}
+      closable={phase === 'pick' || code !== null}
+      width={620}
+      title={
+        <span className="inline-flex items-center gap-2">
+          <Terminal size={15} className="text-accent" />
+          {t('docker.runTitle')}
+        </span>
+      }
+      footer={
+        phase === 'pick' ? (
+          <>
+            <Button onClick={handleClose}>{t('common.cancel')}</Button>
+            <Button
+              variant="primary"
+              icon={<Play size={14} />}
+              onClick={() => void start()}
+            >
+              {t('docker.run')}
+            </Button>
+          </>
+        ) : (
+          <>
+            {code === null ? (
+              <span className="text-xs text-dim inline-flex items-center gap-1.5 mr-auto">
+                <Loader2 size={13} className="animate-spin" />
+                {t('docker.runRunning')}
+              </span>
+            ) : (
+              <span
+                className={`text-xs inline-flex items-center gap-1.5 mr-auto ${
+                  code === 0 ? 'text-accent' : 'text-danger'
+                }`}
+              >
+                {code === 0 ? <CheckCircle2 size={14} /> : <XCircle size={14} />}
+                {code === 0 ? t('docker.runDone') : t('docker.runFailed')}
+              </span>
+            )}
+            <Button onClick={handleClose}>{t('common.close')}</Button>
+          </>
+        )
+      }
+    >
+      {phase === 'pick' ? (
+        <div className="flex flex-col gap-3">
+          <div className="text-xs text-dim leading-relaxed">{t('docker.runHint')}</div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-dim w-20 shrink-0">{t('docker.colImage')}</span>
+            <span className="flex-1 font-mono text-xs text-fg bg-soft border border-bd rounded-md px-2.5 h-8.5 flex items-center truncate">
+              {imageRef}
+            </span>
+          </div>
+          <Field label={t('docker.runName')} hint={t('docker.runNamePlaceholder')}>
+            <Input
+              value={name}
+              onChange={e => setName(e.target.value)}
+              placeholder={t('docker.runNamePlaceholder')}
+              spellCheck={false}
+              className="font-mono"
+            />
+          </Field>
+          <Field label={t('docker.runPorts')} hint={t('docker.runPortsHint')}>
+            <textarea
+              value={ports}
+              onChange={e => setPorts(e.target.value)}
+              spellCheck={false}
+              rows={2}
+              placeholder={'8080:80\n127.0.0.1:8443:443/tcp'}
+              className="w-full bg-input border border-bd rounded-md p-2 text-[13px] text-fg placeholder:text-faint focus:border-accent hover:border-bd-strong font-mono outline-none resize-y min-h-[2.5rem]"
+            />
+          </Field>
+          <Field label={t('docker.runEnv')} hint={t('docker.runEnvHint')}>
+            <textarea
+              value={env}
+              onChange={e => setEnv(e.target.value)}
+              spellCheck={false}
+              rows={2}
+              placeholder={'TZ=Asia/Shanghai\nDEBUG=true'}
+              className="w-full bg-input border border-bd rounded-md p-2 text-[13px] text-fg placeholder:text-faint focus:border-accent hover:border-bd-strong font-mono outline-none resize-y min-h-[2.5rem]"
+            />
+          </Field>
+          <Field label={t('docker.runVolumes')} hint={t('docker.runVolumesHint')}>
+            <textarea
+              value={volumes}
+              onChange={e => setVolumes(e.target.value)}
+              spellCheck={false}
+              rows={2}
+              placeholder={'/data:/var/lib/mysql\n./config:/app/config:ro'}
+              className="w-full bg-input border border-bd rounded-md p-2 text-[13px] text-fg placeholder:text-faint focus:border-accent hover:border-bd-strong font-mono outline-none resize-y min-h-[2.5rem]"
+            />
+          </Field>
+          <Field label={t('docker.runCmd')} hint={t('docker.runCmdPlaceholder')}>
+            <Input
+              value={cmd}
+              onChange={e => setCmd(e.target.value)}
+              placeholder={t('docker.runCmdPlaceholder')}
+              spellCheck={false}
+              className="font-mono"
+            />
+          </Field>
+          <Field label={t('docker.runExtraArgs')} hint={t('docker.runExtraArgsHint')}>
+            <Input
+              value={extraArgs}
+              onChange={e => setExtraArgs(e.target.value)}
+              placeholder={t('docker.runExtraArgsPlaceholder')}
+              spellCheck={false}
+              className="font-mono"
+            />
+          </Field>
+          <label className="text-xs text-dim inline-flex items-center gap-2 select-none cursor-pointer">
+            <Switch checked={detach} onChange={setDetach} />
+            {t('docker.runDetach')}
+          </label>
+        </div>
+      ) : (
+        <pre
+          ref={preRef}
+          className="bg-term-bg text-term-fg font-mono text-xs leading-relaxed rounded-md border border-bd p-3 h-[52vh] overflow-auto whitespace-pre-wrap break-all m-0"
+        >
+          {output}
+        </pre>
+      )}
+    </Modal>
+  )
+}
+
+/** 表单字段：标签 + 输入控件 + 提示 */
+function Field({
+  label,
+  hint,
+  children,
+}: {
+  label: string
+  hint?: string
+  children: ReactNode
+}) {
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="flex items-baseline justify-between">
+        <span className="text-xs text-dim">{label}</span>
+        {hint && <span className="text-[11px] text-faint">{hint}</span>}
+      </div>
+      {children}
+    </div>
   )
 }

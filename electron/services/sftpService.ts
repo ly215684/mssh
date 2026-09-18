@@ -107,6 +107,101 @@ export function rename(sessionId: string, from: string, to: string): Promise<voi
   )
 }
 
+/**
+ * 远程批量移动（同机 SFTP rename，文件与目录均可）：
+ * - 同名文件：询问覆盖/重命名/跳过（沿用传输冲突弹窗，支持批量统一）
+ * - 同名目录：覆盖=递归合并（内部文件覆盖、子目录继续合并），重命名=自动加 (n)
+ * - 禁止把目录移入其自身或子目录（防止循环）
+ * @returns 实际完成移动的条目数（跳过/原位/用户取消不计）
+ */
+export async function move(sessionId: string, srcPaths: string[], targetDir: string): Promise<number> {
+  const sftp = await getSftp(sessionId)
+  let unify: ConflictAction | null = null
+  let moved = 0
+  for (const raw of srcPaths) {
+    const src = raw.replace(/\/+$/, '')
+    const name = basenameRemote(src)
+    const dst = joinRemote(targetDir, name)
+    if (src === dst) continue // 移动到原位置：无操作
+    const srcIsDir = await remoteIsDir(sftp, src)
+    if (srcIsDir && dst.startsWith(`${src}/`)) {
+      throw new Error(`不能将文件夹「${name}」移动到它自身或其子文件夹中`)
+    }
+    if (!(await remoteExists(sftp, dst))) {
+      await remoteRename(sftp, src, dst)
+      moved++
+      continue
+    }
+    const dstIsDir = await remoteIsDir(sftp, dst)
+    let action: ConflictAction | null = unify
+    if (!action) {
+      const r = await askConflict('remote', name, targetDir, srcPaths.length > 1)
+      if (r === 'cancel') return moved
+      action = r.action
+      if (r.applyAll) unify = action
+    }
+    if (action === 'skip') continue
+    if (action === 'rename') {
+      const nn = await uniqueRemoteName(sftp, targetDir, name)
+      await remoteRename(sftp, src, joinRemote(targetDir, nn))
+    } else if (srcIsDir && dstIsDir) {
+      await mergeRemoteDir(sftp, src, dst)
+    } else {
+      await removeRemoteAny(sftp, dst, dstIsDir)
+      await remoteRename(sftp, src, dst)
+    }
+    moved++
+  }
+  return moved
+}
+
+/** 目录合并移动：把 src 内条目逐个 rename 进 dst（文件覆盖、子目录递归合并），最后删空 src */
+async function mergeRemoteDir(sftp: SFTPWrapper, src: string, dst: string): Promise<void> {
+  const entries = await new Promise<{ filename: string }[]>((resolve, reject) => {
+    sftp.readdir(src, (err, list) => (err ? reject(err) : resolve(list)))
+  })
+  for (const e of entries) {
+    const childSrc = joinRemote(src, e.filename)
+    const childDst = joinRemote(dst, e.filename)
+    const srcDir = await remoteIsDir(sftp, childSrc)
+    if (await remoteExists(sftp, childDst)) {
+      const dstDir = await remoteIsDir(sftp, childDst)
+      if (srcDir && dstDir) {
+        await mergeRemoteDir(sftp, childSrc, childDst)
+        continue
+      }
+      // 用户已选择整体覆盖：类型相同文件直接覆盖；类型不同（文件↔目录）先删目标
+      await removeRemoteAny(sftp, childDst, dstDir)
+    }
+    await remoteRename(sftp, childSrc, childDst)
+  }
+  await new Promise<void>((resolve, reject) => {
+    sftp.rmdir(src, err => (err ? reject(err) : resolve()))
+  })
+}
+
+function remoteRename(sftp: SFTPWrapper, from: string, to: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    sftp.rename(from, to, err => (err ? reject(err) : resolve()))
+  })
+}
+
+function remoteIsDir(sftp: SFTPWrapper, p: string): Promise<boolean> {
+  return new Promise((resolve, reject) => {
+    sftp.lstat(p, (err, st) => (err ? reject(err) : resolve(st.isDirectory())))
+  })
+}
+
+async function removeRemoteAny(sftp: SFTPWrapper, p: string, isDir: boolean): Promise<void> {
+  if (!isDir) {
+    await new Promise<void>((resolve, reject) => {
+      sftp.unlink(p, err => (err ? reject(err) : resolve()))
+    })
+    return
+  }
+  await rmRemoteDir(sftp, p)
+}
+
 export function realpath(sessionId: string, p: string): Promise<string> {
   return getSftp(sessionId).then(
     sftp =>

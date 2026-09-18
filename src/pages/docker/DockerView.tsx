@@ -751,17 +751,10 @@ function ComposeModal({
     [sessionId, t],
   )
 
-  // 初始定位到远程 home
+  // 初始定位到远程根目录
   useEffect(() => {
-    void (async () => {
-      try {
-        const h = await window.api.sftpHome(sessionId)
-        await loadDir(h)
-      } catch {
-        /* 忽略：用户可手动输入路径 */
-      }
-    })()
-  }, [sessionId, loadDir])
+    void loadDir('/')
+  }, [loadDir])
 
   // 运行阶段订阅流式输出
   useEffect(() => {

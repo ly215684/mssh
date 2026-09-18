@@ -72,6 +72,8 @@ export interface RendererApi {
   sftpMkdir: (sessionId: string, dir: string) => Promise<void>
   sftpRm: (sessionId: string, path: string) => Promise<void>
   sftpRename: (sessionId: string, from: string, to: string) => Promise<void>
+  /** 远程批量移动（文件/文件夹 rename；同名冲突询问，目录覆盖为合并），返回实际移动条目数 */
+  sftpMove: (sessionId: string, paths: string[], targetDir: string) => Promise<number>
   sftpRealpath: (sessionId: string, path: string) => Promise<string>
   sftpHome: (sessionId: string) => Promise<string>
   /** 读取远程文本文件（>2MB 或二进制会抛错） */

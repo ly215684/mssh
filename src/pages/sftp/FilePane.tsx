@@ -31,6 +31,7 @@ import {
   Tooltip,
   confirm,
   errorAlert,
+  message,
   useContextMenu,
   type MenuItem,
 } from '../../components/ui'
@@ -47,6 +48,7 @@ import {
   type FilterKey,
 } from '../../utils/files'
 import { FileEditor } from './FileEditor'
+import { MoveTargetModal, type MoveItem } from './MoveTargetModal'
 
 /** 跨面板传输：来源侧 + 路径列表 */
 export type TransferSource = 'local' | 'remote'
@@ -149,6 +151,8 @@ export const FilePane = forwardRef<PaneHandle, FilePaneProps>(function FilePane(
   const [touchValue, setTouchValue] = useState('')
   const [dragOver, setDragOver] = useState(false)
   const [editorPath, setEditorPath] = useState<string | null>(null)
+  /** 移动目标选择弹窗：待移动的远程条目 */
+  const [moveItems, setMoveItems] = useState<MoveItem[] | null>(null)
   /** 进行中的文件操作文案（删除/新建/解压等），用于遮罩反馈 */
   const [opLabel, setOpLabel] = useState<string | null>(null)
 
@@ -212,8 +216,10 @@ export const FilePane = forwardRef<PaneHandle, FilePaneProps>(function FilePane(
       try {
         let target = raw.trim()
         if (isRemote && sessionId) {
-          if (!target || target.startsWith('~') || !target.startsWith('/')) {
-            target = await window.api.sftpRealpath(sessionId, target || '.')
+          // 远程面板默认打开根目录 /；~ 开头或相对路径仍解析为绝对路径
+          if (!target) target = '/'
+          else if (target.startsWith('~') || !target.startsWith('/')) {
+            target = await window.api.sftpRealpath(sessionId, target)
           }
           commitDir(target, await window.api.sftpList(sessionId, target))
         } else {
@@ -300,6 +306,7 @@ export const FilePane = forwardRef<PaneHandle, FilePaneProps>(function FilePane(
       })
       if (!ok) return
       await runOp(t('sftp.opDeleting'), async () => {
+        let failed = false
         try {
           for (const n of targets) {
             const p = joinPath(dirRef.current, n)
@@ -307,9 +314,11 @@ export const FilePane = forwardRef<PaneHandle, FilePaneProps>(function FilePane(
             else if (!isRemote) await window.api.localRm(p)
           }
         } catch (e) {
+          failed = true
           void errorAlert(getGlobalT()('sftp.opFailed'), e)
         }
         refresh()
+        if (!failed) message.success(t('sftp.deleteDone'))
       })
     },
     [selected, isRemote, sessionId, t, refresh, runOp],
@@ -421,6 +430,16 @@ export const FilePane = forwardRef<PaneHandle, FilePaneProps>(function FilePane(
         setRenameValue(f.name)
         setRenaming(f.name)
         break
+      case 'move': {
+        // 右键命中多选集合时批量移动，否则只移动当前行
+        const names = selected.has(f.name) && selected.size > 1 ? [...selected] : [f.name]
+        const items = names
+          .map(n => entries?.find(e => e.name === n))
+          .filter((x): x is FileInfo => !!x)
+          .map(x => ({ path: x.path, isDir: x.isDir }))
+        if (items.length) setMoveItems(items)
+        break
+      }
       case 'delete':
         void doDelete([f.name])
         break
@@ -433,6 +452,7 @@ export const FilePane = forwardRef<PaneHandle, FilePaneProps>(function FilePane(
     ...(isRemote ? [{ key: 'download', label: t('ctx.download') }] : []),
     ...(!isRemote && !f.isDir ? [{ key: 'open', label: t('ctx.open') }] : []),
     { key: 'rename', label: t('common.rename') },
+    ...(isRemote ? [{ key: 'move', label: t('ctx.moveTo') }] : []),
     { key: 'divider', label: '', divider: true },
     { key: 'delete', label: t('common.delete'), danger: true },
   ]
@@ -757,6 +777,28 @@ export const FilePane = forwardRef<PaneHandle, FilePaneProps>(function FilePane(
         path={editorPath ?? ''}
         onClose={() => setEditorPath(null)}
       />
+
+      {/* 远程移动：目标目录选择 */}
+      {isRemote && sessionId && (
+        <MoveTargetModal
+          open={moveItems !== null}
+          sessionId={sessionId}
+          items={moveItems ?? []}
+          onClose={() => setMoveItems(null)}
+          onMove={async target => {
+            if (!moveItems) return
+            await runOp(t('sftp.opMoving'), async () => {
+              const moved = await window.api.sftpMove(
+                sessionId,
+                moveItems.map(i => i.path),
+                target,
+              )
+              refresh()
+              if (moved > 0) message.success(t('sftp.moveDone'))
+            })
+          }}
+        />
+      )}
     </div>
   )
 })

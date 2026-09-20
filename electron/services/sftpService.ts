@@ -2,7 +2,7 @@ import type { SFTPWrapper, Stats } from 'ssh2'
 import { randomUUID } from 'node:crypto'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
-import { BrowserWindow, dialog } from 'electron'
+import { BrowserWindow } from 'electron'
 import type { FileInfo, TransferItem } from '../shared/types'
 import { getAll } from './configStore'
 import { execCommand, getSession, onSessionClosed, type SshSession } from './sshService'
@@ -449,31 +449,27 @@ type ConflictAction = 'overwrite' | 'rename' | 'skip'
 /** 冲突询问结果：'cancel' 表示放弃整批传输 */
 type ConflictResult = { action: ConflictAction; applyAll: boolean } | 'cancel'
 
-/** 同名冲突询问弹窗（覆盖/重命名/跳过/取消），文案跟随应用语言 */
-async function askConflict(target: 'remote' | 'local', name: string, dir: string, showCheckbox: boolean): Promise<ConflictResult> {
-  const zh = getAll().settings.language !== 'en-US'
-  const where = target === 'remote'
-    ? (zh ? `远程已存在同名文件「${name}」` : `Remote already has "${name}"`)
-    : (zh ? `本地已存在同名文件「${name}」` : `Local file already exists: "${name}"`)
-  const parent = BrowserWindow.getAllWindows()[0]
-  const opts = {
-    type: 'warning' as const,
-    message: where,
-    detail: (zh ? '目标目录：' : 'Target directory: ') + dir,
-    buttons: [
-      zh ? '覆盖' : 'Overwrite',
-      zh ? '重命名' : 'Rename',
-      zh ? '跳过' : 'Skip',
-      zh ? '取消传输' : 'Cancel transfer',
-    ],
-    defaultId: 0,
-    cancelId: 3,
-    noLink: true,
-    ...(showCheckbox ? { checkboxLabel: zh ? '对本批所有同名文件应用此选择' : 'Apply this choice to all conflicts in this batch' } : {}),
+/** 待渲染进程回复的冲突询问（token -> resolve） */
+const pendingConflicts = new Map<string, (r: ConflictResult) => void>()
+
+/** 渲染进程回复冲突询问（由 sftpIpc 转发调用） */
+export function resolveConflict(token: string, result: ConflictResult): void {
+  const resolve = pendingConflicts.get(token)
+  if (resolve) {
+    pendingConflicts.delete(token)
+    resolve(result)
   }
-  const r = parent && !parent.isDestroyed() ? await dialog.showMessageBox(parent, opts) : await dialog.showMessageBox(opts)
-  if (r.response === 3) return 'cancel'
-  return { action: (['overwrite', 'rename', 'skip'] as const)[r.response], applyAll: r.checkboxChecked }
+}
+
+/** 同名冲突询问：委托渲染进程弹出自定义 Modal（覆盖/重命名/跳过/取消） */
+async function askConflict(target: 'remote' | 'local', name: string, dir: string, showCheckbox: boolean): Promise<ConflictResult> {
+  const win = BrowserWindow.getAllWindows().find(w => !w.isDestroyed())
+  if (!win) return 'cancel'
+  const token = randomUUID()
+  return new Promise<ConflictResult>(resolve => {
+    pendingConflicts.set(token, resolve)
+    win.webContents.send('sftp:conflict:request', { token, target, name, dir, showCheckbox })
+  })
 }
 
 async function localExists(p: string): Promise<boolean> {

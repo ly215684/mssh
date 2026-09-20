@@ -93,6 +93,13 @@ const api: RendererApi = {
     ipcRenderer.on('transfer:progress', handler)
     return () => ipcRenderer.off('transfer:progress', handler)
   },
+  onSftpConflict: cb => {
+    const handler = (_e: IpcRendererEvent, req: Parameters<typeof cb>[0]) => cb(req)
+    ipcRenderer.on('sftp:conflict:request', handler)
+    return () => ipcRenderer.off('sftp:conflict:request', handler)
+  },
+  sftpConflictReply: (token, result) =>
+    ipcRenderer.invoke('sftp:conflict:reply', token, result),
 
   localList: dir => ipcRenderer.invoke('local:list', dir),
   localHome: () => ipcRenderer.invoke('local:home'),

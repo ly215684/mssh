@@ -696,7 +696,7 @@ function LogsModal({
     >
       <pre
         ref={preRef}
-        className="bg-term-bg text-term-fg font-mono text-xs leading-relaxed rounded-md border border-bd p-3 h-[52vh] overflow-auto whitespace-pre-wrap break-all m-0"
+        className="bg-term-bg text-term-fg font-mono text-xs leading-relaxed rounded-md border border-bd p-3 h-[52vh] overflow-auto whitespace-pre-wrap break-all m-0 select-text"
       >
         {text || (streaming ? '' : t('common.loading'))}
       </pre>
@@ -937,7 +937,7 @@ function ComposeModal({
       ) : (
         <pre
           ref={preRef}
-          className="bg-term-bg text-term-fg font-mono text-xs leading-relaxed rounded-md border border-bd p-3 h-[52vh] overflow-auto whitespace-pre-wrap break-all m-0"
+          className="bg-term-bg text-term-fg font-mono text-xs leading-relaxed rounded-md border border-bd p-3 h-[52vh] overflow-auto whitespace-pre-wrap break-all m-0 select-text"
         >
           {output}
         </pre>

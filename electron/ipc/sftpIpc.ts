@@ -33,4 +33,9 @@ export function registerSftpIpc() {
       sftp.download(sessionId, remotePaths, localDir),
   )
   ipcMain.handle('sftp:cancelTransfer', (_e, id: string) => sftp.cancelTransfer(id))
+  ipcMain.handle(
+    'sftp:conflict:reply',
+    (_e, token: string, result: { action: 'overwrite' | 'rename' | 'skip'; applyAll: boolean } | 'cancel') =>
+      sftp.resolveConflict(token, result),
+  )
 }

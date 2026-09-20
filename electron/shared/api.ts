@@ -91,6 +91,21 @@ export interface RendererApi {
   cancelTransfer: (id: string) => Promise<boolean>
   /** 传输进度事件（返回取消订阅函数） */
   onTransfer: (cb: (item: TransferItem) => void) => () => void
+  /** 主进程请求渲染进程弹出 SFTP 同名冲突询问（返回取消订阅函数） */
+  onSftpConflict: (
+    cb: (req: {
+      token: string
+      target: 'remote' | 'local'
+      name: string
+      dir: string
+      showCheckbox: boolean
+    }) => void,
+  ) => () => void
+  /** 回复主进程的 SFTP 冲突询问结果 */
+  sftpConflictReply: (
+    token: string,
+    result: { action: 'overwrite' | 'rename' | 'skip'; applyAll: boolean } | 'cancel',
+  ) => void
 
   // ---- 本地文件 ----
   localList: (dir: string) => Promise<FileInfo[]>

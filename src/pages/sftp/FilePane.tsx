@@ -440,9 +440,12 @@ export const FilePane = forwardRef<PaneHandle, FilePaneProps>(function FilePane(
         if (items.length) setMoveItems(items)
         break
       }
-      case 'delete':
-        void doDelete([f.name])
+      case 'delete': {
+        // 右键命中多选集合时批量删除，否则只删除当前行
+        const names = selected.has(f.name) && selected.size > 1 ? [...selected] : [f.name]
+        void doDelete(names)
         break
+      }
     }
   }
 

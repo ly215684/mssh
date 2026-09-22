@@ -78,7 +78,9 @@ export function FileEditor({ open, sessionId, path, onClose }: FileEditorProps) 
     if (!open || !containerRef.current) return
 
     const language = detectLanguage(fileName)
-    const model = monaco.editor.createModel(content, language)
+    // 用空字符串初始化，避免捕获到上一次打开文件残留的 content 状态。
+    // 真正的内容由下方同步 effect（current === '' 分支）在加载完成后写入。
+    const model = monaco.editor.createModel('', language)
     modelRef.current = model
 
     const editor = monaco.editor.create(containerRef.current, {

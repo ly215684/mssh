@@ -397,6 +397,37 @@ export const FilePane = forwardRef<PaneHandle, FilePaneProps>(function FilePane(
   const doExtract = useCallback(
     async (f: FileInfo) => {
       if (f.isDir || !isArchive(f.name)) return
+      const isZip = f.name.toLowerCase().endsWith('.zip')
+
+      // 远程 .zip 文件：解压前检测 unzip 是否可用，缺失则询问是否安装
+      if (isRemote && sessionId && isZip) {
+        let hasUnzip = true
+        try {
+          hasUnzip = await window.api.sftpHasUnzip(sessionId)
+        } catch {
+          // 检测异常按"已安装"处理，交给 extract 自身暴露错误
+        }
+        if (!hasUnzip) {
+          const ok = await confirm({
+            title: t('sftp.unzipMissingTitle'),
+            content: t('sftp.unzipMissingPrompt'),
+            okText: t('sftp.unzipInstallNow'),
+            cancelText: t('common.cancel'),
+          })
+          if (!ok) return
+          let installedOk = false
+          await runOp(t('sftp.installingUnzip'), async () => {
+            try {
+              await window.api.sftpInstallUnzip(sessionId)
+              installedOk = true
+            } catch (e) {
+              void errorAlert(getGlobalT()('sftp.opFailed'), e)
+            }
+          })
+          if (!installedOk) return
+        }
+      }
+
       await runOp(t('sftp.opExtracting', { name: f.name }), async () => {
         try {
           if (isRemote && sessionId) await window.api.sftpExtract(sessionId, f.path)

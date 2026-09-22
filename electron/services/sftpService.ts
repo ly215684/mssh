@@ -308,6 +308,72 @@ export async function extract(sessionId: string, remotePath: string): Promise<st
   return res.stdout
 }
 
+/** 检测远程是否安装 unzip（command -v 退出码 0 即视为可用） */
+export async function hasUnzip(sessionId: string): Promise<boolean> {
+  try {
+    const r = await execCommand(sessionId, 'command -v unzip')
+    return r.code === 0 && r.stdout.trim().length > 0
+  } catch {
+    return false
+  }
+}
+
+/** 包管理器 → 安装 unzip 的命令 */
+function installCmdFor(pm: string): string {
+  switch (pm) {
+    case 'apt-get':
+      return 'apt-get install -y unzip'
+    case 'yum':
+      return 'yum install -y unzip'
+    case 'dnf':
+      return 'dnf install -y unzip'
+    case 'apk':
+      return 'apk add --no-cache unzip'
+    case 'pacman':
+      return 'pacman -S --noconfirm unzip'
+    case 'zypper':
+      return 'zypper install -y unzip'
+    default:
+      return 'apt-get install -y unzip'
+  }
+}
+
+/**
+ * 安装远程 unzip：自动检测可用包管理器，root 用户直接执行，
+ * 非 root 用户尝试 sudo -n（要求已配置免密 sudo）。
+ */
+export async function installUnzip(sessionId: string): Promise<void> {
+  // 检测包管理器
+  const pmRes = await execCommand(
+    sessionId,
+    'command -v apt-get yum dnf apk pacman zypper 2>/dev/null',
+  )
+  const pmOut = pmRes.stdout.trim()
+  const PM_LIST = ['apt-get', 'yum', 'dnf', 'apk', 'pacman', 'zypper']
+  const pm = PM_LIST.find(m => pmOut.includes(m)) ?? null
+  if (!pm) throw new Error('未检测到可用的包管理器，请手动安装 unzip')
+
+  // 检测当前用户是否为 root
+  let useSudo = false
+  try {
+    const idRes = await execCommand(sessionId, 'id -u')
+    if (idRes.code === 0 && idRes.stdout.trim() !== '0') useSudo = true
+  } catch {
+    /* 检测失败按 root 处理 */
+  }
+
+  const base = installCmdFor(pm)
+  const cmd = useSudo ? `sudo -n ${base}` : base
+  const r = await execCommand(sessionId, cmd)
+  if (r.code !== 0) {
+    throw new Error(r.stderr.trim() || r.stdout.trim() || `安装失败（退出码 ${r.code}）`)
+  }
+  // 安装后再次校验 unzip 是否真的可用
+  if (!(await hasUnzip(sessionId))) {
+    throw new Error('安装命令已执行，但仍未检测到 unzip，请手动检查')
+  }
+}
+
 /** 远程路径拼接（POSIX） */
 function joinRemote(dir: string, name: string): string {
   const d = dir === '/' ? '' : dir.replace(/\/+$/, '')

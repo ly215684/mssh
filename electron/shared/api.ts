@@ -84,6 +84,10 @@ export interface RendererApi {
   sftpTouch: (sessionId: string, path: string) => Promise<void>
   /** 远程解压（解压到同目录） */
   sftpExtract: (sessionId: string, path: string) => Promise<void>
+  /** 检测远程是否已安装 unzip */
+  sftpHasUnzip: (sessionId: string) => Promise<boolean>
+  /** 远程安装 unzip（自动检测包管理器） */
+  sftpInstallUnzip: (sessionId: string) => Promise<void>
   /** 上传（支持目录递归），返回传输任务 id 列表 */
   sftpUpload: (sessionId: string, localPaths: string[], remoteDir: string) => Promise<string[]>
   sftpDownload: (sessionId: string, remotePaths: string[], localDir: string) => Promise<string[]>

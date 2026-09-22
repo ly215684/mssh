@@ -298,6 +298,11 @@ export default {
   'sftp.moveDone': 'Moved successfully',
   'sftp.deleteDone': 'Deleted successfully',
   'sftp.opExtracting': 'Extracting {name}…',
+  'sftp.unzipMissingTitle': 'unzip not installed',
+  'sftp.unzipMissingPrompt':
+    'unzip was not detected on the server, .zip files cannot be extracted. Install it now?',
+  'sftp.unzipInstallNow': 'Install now',
+  'sftp.installingUnzip': 'Installing unzip…',
   'sftp.moveTitle': 'Move to remote folder',
   'sftp.moveSources': 'Move {count} selected item(s) to the destination folder:',
   'sftp.moveHere': 'Move here',

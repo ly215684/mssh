@@ -97,6 +97,8 @@ export function DockerView({ tab }: { tab: SessionTab }) {
   const [view, setView] = useState<'containers' | 'images'>('containers')
   const [loading, setLoading] = useState(false)
   const [dockerErr, setDockerErr] = useState<string | null>(null)
+  /** docker 不可用原因分类：install=未安装；perm=权限不足；other=其他 */
+  const [errKind, setErrKind] = useState<'install' | 'perm' | 'other' | null>(null)
   const [version, setVersion] = useState('')
   const [containers, setContainers] = useState<DockerContainer[]>([])
   const [images, setImages] = useState<DockerImage[]>([])
@@ -115,6 +117,8 @@ export function DockerView({ tab }: { tab: SessionTab }) {
   const [logTarget, setLogTarget] = useState<DockerContainer | null>(null)
   const [composeOpen, setComposeOpen] = useState(false)
   const [pullOpen, setPullOpen] = useState(false)
+  /** 安装 Docker 弹窗：仅在 errKind==='install' 时可触发 */
+  const [installOpen, setInstallOpen] = useState(false)
   /** 从镜像启动：预填镜像名（如 image:tag），null 表示未打开 */
   const [runTarget, setRunTarget] = useState<DockerImage | null>(null)
 
@@ -135,12 +139,19 @@ export function DockerView({ tab }: { tab: SessionTab }) {
         setVersion('')
         setContainers([])
         setImages([])
-        if (/permission denied/i.test(msg)) setDockerErr(t('docker.errPerm'))
-        else if (/command not found|no such file|not found/i.test(msg))
+        if (/permission denied/i.test(msg)) {
+          setDockerErr(t('docker.errPerm'))
+          setErrKind('perm')
+        } else if (/command not found|no such file|not found/i.test(msg)) {
           setDockerErr(t('docker.errInstall'))
-        else setDockerErr(msg || t('docker.errUnavailable'))
+          setErrKind('install')
+        } else {
+          setDockerErr(msg || t('docker.errUnavailable'))
+          setErrKind('other')
+        }
         return
       }
+      setErrKind(null)
       setVersion(ver.stdout.trim())
 
       const [psRes, imgRes] = await Promise.all([
@@ -167,6 +178,7 @@ export function DockerView({ tab }: { tab: SessionTab }) {
       )
     } catch (e) {
       setDockerErr(e instanceof Error ? e.message : String(e))
+      setErrKind('other')
     } finally {
       setLoading(false)
     }
@@ -386,9 +398,21 @@ export function DockerView({ tab }: { tab: SessionTab }) {
                   <Boxes size={28} strokeWidth={1.5} className="text-faint" />
                   <div className="text-sm text-danger">{t('docker.errUnavailable')}</div>
                   <div className="text-xs text-dim max-w-md selectable break-all">{dockerErr}</div>
-                  <Button size="sm" className="mt-1" onClick={() => void load()}>
-                    {t('common.refresh')}
-                  </Button>
+                  <div className="flex items-center gap-2 mt-1">
+                    {errKind === 'install' && (
+                      <Button
+                        size="sm"
+                        variant="primary"
+                        icon={<Download size={14} />}
+                        onClick={() => setInstallOpen(true)}
+                      >
+                        {t('docker.install')}
+                      </Button>
+                    )}
+                    <Button size="sm" onClick={() => void load()}>
+                      {t('common.refresh')}
+                    </Button>
+                  </div>
                 </div>
               ) : view === 'containers' ? (
                 containers.length === 0 ? (
@@ -555,6 +579,13 @@ export function DockerView({ tab }: { tab: SessionTab }) {
           image={runTarget}
           onClose={() => setRunTarget(null)}
           onDone={load}
+        />
+      )}
+      {installOpen && sessionId && (
+        <InstallDockerModal
+          sessionId={sessionId}
+          onClose={() => setInstallOpen(false)}
+          onInstalled={load}
         />
       )}
     </div>
@@ -1348,6 +1379,261 @@ function RunImageModal({
         <pre
           ref={preRef}
           className="bg-term-bg text-term-fg font-mono text-xs leading-relaxed rounded-md border border-bd p-3 h-[52vh] overflow-auto whitespace-pre-wrap break-all m-0"
+        >
+          {output}
+        </pre>
+      )}
+    </Modal>
+  )
+}
+
+/** 安装 Docker：检测服务器系统与权限 → 确认 → 流式执行安装命令 */
+function InstallDockerModal({
+  sessionId,
+  onClose,
+  onInstalled,
+}: {
+  sessionId: string
+  onClose: () => void
+  onInstalled: () => void
+}) {
+  const t = useT()
+  const [phase, setPhase] = useState<'detect' | 'confirm' | 'run'>('detect')
+  const [osInfo, setOsInfo] = useState<{ id: string; version: string; name: string } | null>(null)
+  const [isRoot, setIsRoot] = useState(false)
+  const [hasSudo, setHasSudo] = useState(false)
+  const [installCmd, setInstallCmd] = useState('')
+  const [unsupported, setUnsupported] = useState<string | null>(null)
+  const [detectErr, setDetectErr] = useState<string | null>(null)
+  const [output, setOutput] = useState('')
+  const [code, setCode] = useState<number | null>(null)
+  const streamIdRef = useRef<string | null>(null)
+  const preRef = useRef<HTMLPreElement>(null)
+
+  /** 阶段 1：检测服务器系统与权限 */
+  useEffect(() => {
+    let cancelled = false
+    const detect = async () => {
+      try {
+        const [osRes, uidRes, sudoRes] = await Promise.all([
+          window.api.sshExec(sessionId, 'cat /etc/os-release'),
+          window.api.sshExec(sessionId, 'id -u'),
+          window.api.sshExec(sessionId, 'command -v sudo >/dev/null 2>&1 && echo yes || echo no'),
+        ])
+        if (cancelled) return
+        // 解析 /etc/os-release
+        const get = (key: string) => {
+          const m = osRes.stdout.match(new RegExp(`^${key}=(.*)$`, 'm'))
+          return m ? m[1].replace(/^["']|["']$/g, '') : ''
+        }
+        const osId = get('ID').toLowerCase()
+        const info = {
+          id: osId,
+          version: get('VERSION_ID'),
+          name: get('PRETTY_NAME') || get('NAME') || osId,
+        }
+        setOsInfo(info)
+        setIsRoot(uidRes.stdout.trim() === '0')
+        setHasSudo(sudoRes.stdout.trim() === 'yes')
+
+        // 根据系统与权限构造安装命令
+        const root = uidRes.stdout.trim() === '0'
+        const sudo = sudoRes.stdout.trim() === 'yes'
+        const sudoPrefix = !root && sudo ? 'sudo ' : ''
+        // get.docker.com 支持的发行版
+        const scriptSupported =
+          /^(ubuntu|debian|raspbian|linuxmint|pop|fedora|rhel|centos|rocky|almalinux|ol|sles|sles_sap|amzn|kylin|uos|euleros|openEuler)$/.test(
+            osId,
+          )
+        let cmd = ''
+        let unsup: string | null = null
+        if (osId === 'alpine') {
+          cmd = `${sudoPrefix}apk add --no-cache docker && ${sudoPrefix}rc-update add docker default && ${sudoPrefix}rc-service docker start`
+        } else if (osId === 'arch' || osId === 'manjaro' || osId === 'antergos') {
+          cmd = `${sudoPrefix}pacman -S --noconfirm docker && ${sudoPrefix}systemctl enable --now docker`
+        } else if (scriptSupported) {
+          // 官方文档推荐：先下载脚本再执行（便于审查、避免 sudo 管道兼容问题）
+          cmd = `curl -fsSL https://get.docker.com -o /tmp/get-docker.sh && ${sudoPrefix}sh /tmp/get-docker.sh && rm -f /tmp/get-docker.sh`
+        } else {
+          unsup = info.name || osId
+        }
+        if (cmd) setInstallCmd(cmd)
+        setUnsupported(unsup)
+        setPhase('confirm')
+      } catch (e) {
+        if (!cancelled) {
+          setDetectErr(e instanceof Error ? e.message : String(e))
+        }
+      }
+    }
+    void detect()
+    return () => {
+      cancelled = true
+    }
+  }, [sessionId])
+
+  /** 阶段 3：订阅流式输出 */
+  useEffect(() => {
+    if (phase !== 'run') return
+    const offData = window.api.onSshStreamData((id, chunk) => {
+      if (id === streamIdRef.current) setOutput(p => p + chunk)
+    })
+    const offClose = window.api.onSshStreamClose((id, c) => {
+      if (id !== streamIdRef.current) return
+      streamIdRef.current = null
+      setCode(c)
+      if (c === 0) {
+        message.success(t('docker.installDone'))
+        onInstalled()
+      }
+    })
+    return () => {
+      offData()
+      offClose()
+    }
+  }, [phase, onInstalled, t])
+
+  // 输出自动滚动到底部
+  useEffect(() => {
+    if (preRef.current) preRef.current.scrollTop = preRef.current.scrollHeight
+  }, [output])
+
+  const handleClose = () => {
+    if (streamIdRef.current) {
+      window.api.sshStreamKill(streamIdRef.current)
+      streamIdRef.current = null
+    }
+    onClose()
+  }
+
+  /** 阶段 2 → 阶段 3：开始安装 */
+  const start = async () => {
+    if (!installCmd) return
+    if (!isRoot && !hasSudo) {
+      void errorAlert(t('docker.installFailed'), t('docker.installNoSudo'))
+      return
+    }
+    setPhase('run')
+    setOutput('')
+    setCode(null)
+    try {
+      const sid = await window.api.sshExecStream(sessionId, installCmd)
+      streamIdRef.current = sid
+    } catch (e) {
+      setCode(1)
+      setOutput(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  return (
+    <Modal
+      open
+      onClose={handleClose}
+      maskClosable={false}
+      closable={phase === 'run' ? code !== null : true}
+      width={680}
+      title={
+        <span className="inline-flex items-center gap-2">
+          <Download size={15} className="text-accent" />
+          {t('docker.installTitle')}
+        </span>
+      }
+      footer={
+        phase === 'run' ? (
+          <>
+            {code === null ? (
+              <span className="text-xs text-dim inline-flex items-center gap-1.5 mr-auto">
+                <Loader2 size={13} className="animate-spin" />
+                {t('docker.installRunning')}
+              </span>
+            ) : (
+              <span
+                className={`text-xs inline-flex items-center gap-1.5 mr-auto ${
+                  code === 0 ? 'text-accent' : 'text-danger'
+                }`}
+              >
+                {code === 0 ? <CheckCircle2 size={14} /> : <XCircle size={14} />}
+                {code === 0 ? t('docker.installDone') : t('docker.installFailed')}
+              </span>
+            )}
+            <Button onClick={handleClose}>{t('common.close')}</Button>
+          </>
+        ) : (
+          <>
+            <Button onClick={handleClose}>{t('common.cancel')}</Button>
+            <Button
+              variant="primary"
+              icon={<Download size={14} />}
+              disabled={phase !== 'confirm' || !installCmd || !!unsupported}
+              onClick={() => void start()}
+            >
+              {t('docker.installRun')}
+            </Button>
+          </>
+        )
+      }
+    >
+      {phase === 'detect' ? (
+        <div className="flex items-center justify-center h-32 gap-2 text-dim">
+          <Spinner size={18} />
+          <span className="text-xs">{t('docker.installDetecting')}</span>
+        </div>
+      ) : phase === 'confirm' ? (
+        detectErr ? (
+          <div className="flex flex-col gap-2">
+            <div className="text-sm text-danger">{t('docker.installDetectFailed')}</div>
+            <pre className="bg-term-bg text-term-fg font-mono text-xs leading-relaxed rounded-md border border-bd p-3 max-h-40 overflow-auto whitespace-pre-wrap break-all m-0 select-text">
+              {detectErr}
+            </pre>
+          </div>
+        ) : unsupported ? (
+          <div className="flex flex-col gap-2">
+            <div className="text-sm text-danger">
+              {t('docker.installUnsupported', { name: unsupported })}
+            </div>
+            <div className="text-xs text-dim leading-relaxed">
+              {t('docker.errInstall')}
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-3">
+            <div className="text-xs text-dim leading-relaxed">{t('docker.installHint')}</div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-dim w-24 shrink-0">
+                {t('docker.installDetected')}
+              </span>
+              <span className="flex-1 font-mono text-xs text-fg bg-soft border border-bd rounded-md px-2.5 h-8.5 flex items-center truncate">
+                {osInfo?.name ?? '-'}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-dim w-24 shrink-0">
+                {t('docker.installPrivilege')}
+              </span>
+              <span
+                className={`text-xs font-mono ${
+                  isRoot || hasSudo ? 'text-accent' : 'text-danger'
+                }`}
+              >
+                {isRoot
+                  ? t('docker.installRoot')
+                  : hasSudo
+                    ? t('docker.installSudo')
+                    : t('docker.installNoSudo')}
+              </span>
+            </div>
+            <div className="flex flex-col gap-1">
+              <span className="text-xs text-dim">{t('docker.installCmd')}</span>
+              <pre className="bg-term-bg text-term-fg font-mono text-xs leading-relaxed rounded-md border border-bd p-3 max-h-32 overflow-auto whitespace-pre-wrap break-all m-0 select-text">
+                {installCmd || '-'}
+              </pre>
+            </div>
+          </div>
+        )
+      ) : (
+        <pre
+          ref={preRef}
+          className="bg-term-bg text-term-fg font-mono text-xs leading-relaxed rounded-md border border-bd p-3 h-[52vh] overflow-auto whitespace-pre-wrap break-all m-0 select-text"
         >
           {output}
         </pre>

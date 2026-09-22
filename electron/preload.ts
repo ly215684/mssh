@@ -84,7 +84,7 @@ const api: RendererApi = {
   sftpTouch: (sessionId, remotePath) => ipcRenderer.invoke('sftp:touch', sessionId, remotePath),
   sftpExtract: (sessionId, remotePath) => ipcRenderer.invoke('sftp:extract', sessionId, remotePath),
   sftpHasUnzip: sessionId => ipcRenderer.invoke('sftp:hasUnzip', sessionId),
-  sftpInstallUnzip: sessionId => ipcRenderer.invoke('sftp:installUnzip', sessionId),
+  sftpInstallUnzipStream: sessionId => ipcRenderer.invoke('sftp:installUnzipStream', sessionId),
   sftpUpload: (sessionId, localPaths, remoteDir) =>
     ipcRenderer.invoke('sftp:upload', sessionId, localPaths, remoteDir),
   sftpDownload: (sessionId, remotePaths, localDir) =>

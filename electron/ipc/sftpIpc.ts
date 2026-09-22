@@ -25,7 +25,9 @@ export function registerSftpIpc() {
     sftp.extract(sessionId, remotePath),
   )
   ipcMain.handle('sftp:hasUnzip', (_e, sessionId: string) => sftp.hasUnzip(sessionId))
-  ipcMain.handle('sftp:installUnzip', (_e, sessionId: string) => sftp.installUnzip(sessionId))
+  ipcMain.handle('sftp:installUnzipStream', (_e, sessionId: string) =>
+    sftp.installUnzipStream(sessionId),
+  )
   ipcMain.handle('sftp:upload', (_e, sessionId: string, localPaths: string[], remoteDir: string) =>
     sftp.upload(sessionId, localPaths, remoteDir),
   )

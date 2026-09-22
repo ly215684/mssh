@@ -5,7 +5,7 @@ import path from 'node:path'
 import { BrowserWindow } from 'electron'
 import type { FileInfo, TransferItem } from '../shared/types'
 import { getAll } from './configStore'
-import { execCommand, getSession, onSessionClosed, type SshSession } from './sshService'
+import { execCommand, execStream, getSession, onSessionClosed, type SshSession } from './sshService'
 import { sortEntries } from './localFs'
 
 function asSession(id: string): SshSession | undefined {
@@ -318,60 +318,39 @@ export async function hasUnzip(sessionId: string): Promise<boolean> {
   }
 }
 
-/** 包管理器 → 安装 unzip 的命令 */
-function installCmdFor(pm: string): string {
-  switch (pm) {
-    case 'apt-get':
-      return 'apt-get install -y unzip'
-    case 'yum':
-      return 'yum install -y unzip'
-    case 'dnf':
-      return 'dnf install -y unzip'
-    case 'apk':
-      return 'apk add --no-cache unzip'
-    case 'pacman':
-      return 'pacman -S --noconfirm unzip'
-    case 'zypper':
-      return 'zypper install -y unzip'
-    default:
-      return 'apt-get install -y unzip'
-  }
-}
-
 /**
- * 安装远程 unzip：自动检测可用包管理器，root 用户直接执行，
- * 非 root 用户尝试 sudo -n（要求已配置免密 sudo）。
+ * 流式安装 unzip：单条 shell 脚本自动检测包管理器 + root 检测 + 调用安装命令，
+ * 实时输出（stdout/stderr）通过 ssh:stream:data 广播给渲染进程，
+ * 结束时通过 ssh:stream:close 推送退出码。返回 streamId。
  */
-export async function installUnzip(sessionId: string): Promise<void> {
-  // 检测包管理器
-  const pmRes = await execCommand(
-    sessionId,
-    'command -v apt-get yum dnf apk pacman zypper 2>/dev/null',
-  )
-  const pmOut = pmRes.stdout.trim()
-  const PM_LIST = ['apt-get', 'yum', 'dnf', 'apk', 'pacman', 'zypper']
-  const pm = PM_LIST.find(m => pmOut.includes(m)) ?? null
-  if (!pm) throw new Error('未检测到可用的包管理器，请手动安装 unzip')
-
-  // 检测当前用户是否为 root
-  let useSudo = false
-  try {
-    const idRes = await execCommand(sessionId, 'id -u')
-    if (idRes.code === 0 && idRes.stdout.trim() !== '0') useSudo = true
-  } catch {
-    /* 检测失败按 root 处理 */
-  }
-
-  const base = installCmdFor(pm)
-  const cmd = useSudo ? `sudo -n ${base}` : base
-  const r = await execCommand(sessionId, cmd)
-  if (r.code !== 0) {
-    throw new Error(r.stderr.trim() || r.stdout.trim() || `安装失败（退出码 ${r.code}）`)
-  }
-  // 安装后再次校验 unzip 是否真的可用
-  if (!(await hasUnzip(sessionId))) {
-    throw new Error('安装命令已执行，但仍未检测到 unzip，请手动检查')
-  }
+export async function installUnzipStream(sessionId: string): Promise<string> {
+  // 用 String.raw 避免 ${} 被 JS 模板字符串解析（脚本里都是 shell 变量）
+  const script = String.raw`set -e
+PM=
+for c in apt-get yum dnf apk pacman zypper; do
+  if command -v "$c" >/dev/null 2>&1; then PM="$c"; break; fi
+done
+if [ -z "$PM" ]; then
+  echo "未检测到可用的包管理器，请手动安装 unzip" >&2
+  exit 2
+fi
+echo "使用包管理器: $PM"
+if [ "$(id -u)" != "0" ]; then
+  SUDO="sudo -n"
+  echo "非 root 用户，使用 sudo -n（要求已配置免密 sudo）"
+else
+  SUDO=""
+fi
+case "$PM" in
+  apt-get) $SUDO apt-get install -y unzip ;;
+  yum)     $SUDO yum install -y unzip ;;
+  dnf)     $SUDO dnf install -y unzip ;;
+  apk)     $SUDO apk add --no-cache unzip ;;
+  pacman)  $SUDO pacman -S --noconfirm unzip ;;
+  zypper)  $SUDO zypper install -y unzip ;;
+  *)       echo "不支持的包管理器: $PM" >&2; exit 3 ;;
+esac`
+  return execStream(sessionId, script)
 }
 
 /** 远程路径拼接（POSIX） */

@@ -11,22 +11,28 @@ import {
 } from 'react'
 import {
   ArrowUp,
+  CheckCircle2,
   Download,
   FilePlus,
   FolderPlus,
   HardDrive,
+  Loader2,
   MonitorDown,
   Pencil,
   RefreshCw,
   Server,
+  Terminal,
   Trash2,
   Upload,
+  XCircle,
 } from 'lucide-react'
 import type { FileInfo } from '../../../electron/shared/types'
 import { useT } from '../../i18n/I18nProvider'
 import { getGlobalT } from '../../i18n/I18nProvider'
 import {
+  Button,
   Empty,
+  Modal,
   Spinner,
   Tooltip,
   confirm,
@@ -155,6 +161,8 @@ export const FilePane = forwardRef<PaneHandle, FilePaneProps>(function FilePane(
   const [moveItems, setMoveItems] = useState<MoveItem[] | null>(null)
   /** 进行中的文件操作文案（删除/新建/解压等），用于遮罩反馈 */
   const [opLabel, setOpLabel] = useState<string | null>(null)
+  /** 远程 .zip 解压时未检测到 unzip，弹出安装流式日志弹窗 */
+  const [installFor, setInstallFor] = useState<FileInfo | null>(null)
 
   const dirRef = useRef('')
   const nonceRef = useRef(0)
@@ -415,16 +423,9 @@ export const FilePane = forwardRef<PaneHandle, FilePaneProps>(function FilePane(
             cancelText: t('common.cancel'),
           })
           if (!ok) return
-          let installedOk = false
-          await runOp(t('sftp.installingUnzip'), async () => {
-            try {
-              await window.api.sftpInstallUnzip(sessionId)
-              installedOk = true
-            } catch (e) {
-              void errorAlert(getGlobalT()('sftp.opFailed'), e)
-            }
-          })
-          if (!installedOk) return
+          // 打开流式安装日志弹窗；安装成功后由弹窗回调继续解压
+          setInstallFor(f)
+          return
         }
       }
 
@@ -833,6 +834,183 @@ export const FilePane = forwardRef<PaneHandle, FilePaneProps>(function FilePane(
           }}
         />
       )}
+
+      {/* 远程 unzip 安装：实时日志弹窗，成功后自动继续解压 */}
+      {isRemote && sessionId && installFor && (
+        <InstallUnzipModal
+          sessionId={sessionId}
+          onClose={() => setInstallFor(null)}
+          onDone={async success => {
+            const f = installFor
+            setInstallFor(null)
+            if (!success) return
+            await runOp(t('sftp.opExtracting', { name: f.name }), async () => {
+              try {
+                await window.api.sftpExtract(sessionId, f.path)
+                refresh()
+              } catch (e) {
+                void errorAlert(getGlobalT()('sftp.opFailed'), e)
+              }
+            })
+          }}
+        />
+      )}
     </div>
   )
 })
+
+/** 远程 unzip 安装：流式日志弹窗，实时展示 apt-get/yum 等的 stdout/stderr，
+ *  结束后自动二次校验 unzip 可用性，回调 onDone(success) 通知调用方。 */
+const MAX_INSTALL_LOG_CHARS = 1_000_000
+
+function InstallUnzipModal({
+  sessionId,
+  onClose,
+  onDone,
+}: {
+  sessionId: string
+  onClose: () => void
+  onDone: (success: boolean) => void
+}) {
+  const t = useT()
+  const [output, setOutput] = useState('')
+  const [code, setCode] = useState<number | null>(null)
+  /** 命令成功后做二次校验：'pending' | 'ok' | 'fail' */
+  const [verify, setVerify] = useState<'pending' | 'ok' | 'fail'>('pending')
+  const [error, setError] = useState<string | null>(null)
+  const streamIdRef = useRef<string | null>(null)
+  const preRef = useRef<HTMLPreElement>(null)
+
+  // 启动流式安装
+  useEffect(() => {
+    let cancelled = false
+    setOutput('')
+    setCode(null)
+    setVerify('pending')
+    setError(null)
+    window.api
+      .sftpInstallUnzipStream(sessionId)
+      .then(sid => {
+        if (cancelled) {
+          window.api.sshStreamKill(sid)
+          return
+        }
+        streamIdRef.current = sid
+      })
+      .catch(e => {
+        if (!cancelled) {
+          setError(e instanceof Error ? e.message : String(e))
+          setCode(1)
+          setVerify('fail')
+        }
+      })
+    return () => {
+      cancelled = true
+      if (streamIdRef.current) {
+        window.api.sshStreamKill(streamIdRef.current)
+        streamIdRef.current = null
+      }
+    }
+  }, [sessionId])
+
+  // 订阅流式输出
+  useEffect(() => {
+    const offData = window.api.onSshStreamData((id, chunk) => {
+      if (id !== streamIdRef.current) return
+      setOutput(p => {
+        const next = p + chunk
+        return next.length > MAX_INSTALL_LOG_CHARS ? next.slice(-MAX_INSTALL_LOG_CHARS / 2) : next
+      })
+    })
+    const offClose = window.api.onSshStreamClose(async (id, c) => {
+      if (id !== streamIdRef.current) return
+      streamIdRef.current = null
+      setCode(c)
+      if (c !== 0) {
+        setVerify('fail')
+        return
+      }
+      // 命令成功后二次校验 unzip 是否真的可用
+      try {
+        const ok = await window.api.sftpHasUnzip(sessionId)
+        setVerify(ok ? 'ok' : 'fail')
+      } catch {
+        setVerify('fail')
+      }
+    })
+    return () => {
+      offData()
+      offClose()
+    }
+  }, [sessionId])
+
+  // 输出自动滚动到底部
+  useEffect(() => {
+    if (preRef.current) preRef.current.scrollTop = preRef.current.scrollHeight
+  }, [output])
+
+  // 校验结束 → 回调外层
+  useEffect(() => {
+    if (verify === 'pending') return
+    // 等待一次渲染让用户看到结果，再回调外层
+    const timer = setTimeout(() => onDone(verify === 'ok'), 50)
+    return () => clearTimeout(timer)
+  }, [verify, onDone])
+
+  const finished = code !== null && verify !== 'pending'
+  const success = verify === 'ok'
+
+  const handleClose = () => {
+    if (streamIdRef.current) {
+      window.api.sshStreamKill(streamIdRef.current)
+      streamIdRef.current = null
+    }
+    onClose()
+  }
+
+  return (
+    <Modal
+      open
+      onClose={handleClose}
+      maskClosable={false}
+      closable={finished}
+      width={680}
+      title={
+        <span className="inline-flex items-center gap-2">
+          <Terminal size={15} className="text-accent" />
+          {t('sftp.installUnzipTitle')}
+        </span>
+      }
+      footer={
+        <div className="flex items-center gap-2.5 w-full">
+          {code === null ? (
+            <span className="text-xs text-dim inline-flex items-center gap-1.5 mr-auto">
+              <Loader2 size={13} className="animate-spin" />
+              {t('sftp.installingUnzip')}
+            </span>
+          ) : success ? (
+            <span className="text-xs text-accent inline-flex items-center gap-1.5 mr-auto">
+              <CheckCircle2 size={14} />
+              {t('sftp.installUnzipDone')}
+            </span>
+          ) : (
+            <span className="text-xs text-danger inline-flex items-center gap-1.5 mr-auto">
+              <XCircle size={14} />
+              {t('sftp.installUnzipFailed')}
+            </span>
+          )}
+          <Button size="sm" onClick={handleClose} disabled={!finished}>
+            {t('common.close')}
+          </Button>
+        </div>
+      }
+    >
+      <pre
+        ref={preRef}
+        className="bg-term-bg text-term-fg font-mono text-xs leading-relaxed rounded-md border border-bd p-3 h-[52vh] overflow-auto whitespace-pre-wrap break-all m-0 select-text"
+      >
+        {output || (code === null ? t('common.loading') : error ?? '')}
+      </pre>
+    </Modal>
+  )
+}

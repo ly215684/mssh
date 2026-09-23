@@ -1,6 +1,6 @@
 # mssh
 
-基于 Electron + React + TypeScript 的 SSH & SFTP 桌面客户端，支持多主题、多语言、双栏文件管理、远程编辑、资源监控与自动更新。
+基于 Electron + React + TypeScript 的 SSH & SFTP 桌面客户端，支持多主题、多语言、双栏文件管理、远程编辑、Docker / 定时任务管理、AI 运维助手、资源监控与自动更新。
 
 ## ✨ 功能特性
 
@@ -38,6 +38,16 @@
 - 写回时保留 crontab 中的环境变量（`MAILTO=` 等）与原有结构，保存后 cron 守护进程自动加载
 - 解析 `@reboot` / `@hourly` 等特殊表达式与被注释掉的禁用任务行
 
+### AI 运维助手
+- 终端工具栏一键打开 **AI 助手**（与 Docker / 定时任务按钮同排），面板悬浮在终端右侧，不占用标签页，仅在 SSH 终端页面显示
+- **主流大模型**：内置 DeepSeek、OpenAI、Kimi（Moonshot）、通义千问、智谱 GLM、豆包（火山方舟）、硅基流动预设，也支持任意 OpenAI 兼容接口（自定义 Base URL / 模型名）
+- **流式对话**：SSE 实时输出，可随时停止、失败重试、重新生成
+- **多会话管理**：新建 / 切换 / 删除，历史记录本地持久化，自动携带最近 40 条上下文 + 自定义系统提示词
+- **Markdown 渲染**：标题、列表、表格等基础语法，**代码块（命令）一键复制**，整条回复也可复制
+- **设置页测试连接**：保存前即可验证 Key / 接口 / 模型是否可用，针对超时、代理、域名解析等网络问题给出中文排查提示
+- API Key 经系统 `safeStorage` 加密存储；请求由主进程代理（Chromium 网络栈，自动遵循系统代理，无 CORS 问题）
+- 空会话内置运维场景快捷提问（查磁盘、找大文件、看端口、看 CPU 进程）
+
 ### 连接管理
 - 连接列表分组（拖拽创建分组）
 - 密码 / 私钥通过 `safeStorage` 加密存储
@@ -51,8 +61,9 @@
 ### 设置弹窗
 - **通用**：语言、主题、启动恢复会话、自动检查更新、打开数据目录
 - **终端**：字体、字号、光标样式（块/下划线/竖线）、光标闪烁、滚动回滚行数、编辑器文件上限、铃声
-- **SSH**：keepalive 间隔、连接超时、压缩传输
-- 设置通过主进程 `safeStorage` 持久化
+- **SSH**：keepalive 间隔、连接超时、压缩传输、传输并发数、X11 转发
+- **AI 助手**：服务商预设、API Key、接口地址、模型名、系统提示词、测试连接
+- 设置通过主进程 `safeStorage` 持久化（含 API Key 加密）
 
 ### 会话恢复
 - 启动时自动恢复上次的连接标签（终端 / SFTP / Docker / Cron），可在设置中开关
@@ -128,8 +139,8 @@ pnpm release 1.2.3
 ```
 mssh/
 ├── electron/                  # 主进程
-│   ├── ipc/                   # IPC handler（连接/SFTP/本地文件/设置/更新）
-│   ├── services/              # sshService / sftpService / localFs / configStore / autoUpdate
+│   ├── ipc/                   # IPC handler（连接/SFTP/本地文件/设置/更新/AI）
+│   ├── services/              # sshService / sftpService / localFs / configStore / aiService / autoUpdate
 │   ├── shared/api.ts          # 渲染进程可调用的 API 类型声明
 │   ├── preload.ts             # 上下文桥接
 │   └── main.ts                # 应用入口
@@ -143,7 +154,8 @@ mssh/
 │   │   ├── sftp/              # SFTP 双栏 / 文件面板 / 编辑器 / 传输队列
 │   │   ├── docker/            # Docker 管理面板（容器 / 镜像 / 日志 / Compose）
 │   │   ├── cron/              # 定时任务管理面板（crontab 增删改 / 脚本选择）
-│   │   └── settings/          # 设置弹窗（通用 / 终端 / SSH）
+│   │   ├── ai/                # AI 助手悬浮面板（流式对话 / Markdown 渲染 / 代码复制）
+│   │   └── settings/          # 设置弹窗（通用 / 终端 / SSH / AI）
 │   ├── stores/                # Zustand 状态
 │   ├── styles/                # tokens.css（设计令牌）/ base.css
 │   └── utils/                 # 文件工具 / 终端主题
@@ -156,4 +168,5 @@ mssh/
 
 - 远程解压依赖服务器已安装对应工具（tar / unzip / 7z）
 - 本地 `.7z` 解压需要系统安装 7-Zip 并加入 PATH
+- AI 助手不内置模型额度，需自行准备兼容 OpenAI 接口的 API Key
 - 自动更新仅在打包版本中生效，`pnpm dev` 下会跳过

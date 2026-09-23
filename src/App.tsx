@@ -11,6 +11,7 @@ import { useConnStore } from './stores/connStore'
 import { useSessionStore, initSshEvents } from './stores/sessionStore'
 import { startTransferListener } from './stores/transferStore'
 import { startUpdateListener, useUpdateStore } from './stores/updateStore'
+import { initAiListener } from './stores/aiChatStore'
 import { ConfirmHost, ContextMenuHost, MessageHost } from './components/ui'
 
 let booted = false
@@ -31,6 +32,8 @@ export default function App() {
       startTransferListener()
       // 全局订阅 SSH 退出事件（自动重连依赖，标签卸载时也不丢事件）
       initSshEvents()
+      // 全局订阅 AI 流式输出事件
+      initAiListener()
       // 自动更新：订阅事件；开启开关时启动后静默检查
       startUpdateListener()
       if (cfg.settings.autoUpdate) {

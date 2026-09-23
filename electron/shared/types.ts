@@ -61,6 +61,72 @@ export interface SshSettings {
 export type Language = 'zh-CN' | 'en-US'
 export type ThemeMode = 'dark' | 'light'
 
+/** AI 服务商预设（均提供 OpenAI Chat Completions 兼容接口） */
+export type AiProviderId =
+  | 'openai'
+  | 'deepseek'
+  | 'moonshot'
+  | 'dashscope'
+  | 'bigmodel'
+  | 'volcengine'
+  | 'siliconflow'
+  | 'custom'
+
+/** AI 大模型设置（apiKey 由 configStore 加密落盘） */
+export interface AiSettings {
+  provider: AiProviderId
+  /** API Key（渲染进程拿到的是明文，configStore 落盘时加密） */
+  apiKey: string
+  /** OpenAI 兼容接口根地址（以 /v1 等结尾，不含 /chat/completions） */
+  baseUrl: string
+  /** 模型名称（火山方舟等填接入点 ID，如 ep-xxx） */
+  model: string
+  /** 系统提示词 */
+  systemPrompt: string
+}
+
+/** 对话消息（主/渲染共享，发送给兼容接口的标准结构） */
+export interface ChatMessage {
+  role: 'system' | 'user' | 'assistant'
+  content: string
+}
+
+/** AI 连通性测试失败类别（渲染端据此给出本地化排查提示） */
+export type AiErrorCode = 'timeout' | 'proxy' | 'dns' | 'network' | 'http' | 'parse'
+
+/** AI 连通性测试结果（设置页测试按钮） */
+export interface AiTestResult {
+  ok: boolean
+  /** 成功时模型的简短回复 */
+  reply?: string
+  /** 失败时的可读错误信息 */
+  error?: string
+  /** 失败类别 */
+  code?: AiErrorCode
+}
+
+/** 服务商预设（主/渲染共享的静态数据） */
+export interface AiProviderPreset {
+  id: AiProviderId
+  baseUrl: string
+  model: string
+}
+
+export const AI_PROVIDER_PRESETS: AiProviderPreset[] = [
+  { id: 'deepseek', baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat' },
+  { id: 'openai', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o-mini' },
+  { id: 'moonshot', baseUrl: 'https://api.moonshot.cn/v1', model: 'moonshot-v1-8k' },
+  {
+    id: 'dashscope',
+    baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    model: 'qwen-plus',
+  },
+  { id: 'bigmodel', baseUrl: 'https://open.bigmodel.cn/api/paas/v4', model: 'glm-4-flash' },
+  { id: 'volcengine', baseUrl: 'https://ark.cn-beijing.volces.com/api/v3', model: '' },
+  { id: 'siliconflow', baseUrl: 'https://api.siliconflow.cn/v1', model: 'deepseek-ai/DeepSeek-V3' },
+  { id: 'custom', baseUrl: '', model: '' },
+]
+
 /** 应用设置 */
 export interface AppSettings {
   language: Language
@@ -71,6 +137,7 @@ export interface AppSettings {
   autoUpdate: boolean
   terminal: TerminalSettings
   ssh: SshSettings
+  ai: AiSettings
 }
 
 /** 会话标签类型 */
@@ -81,7 +148,7 @@ export interface SessionTab {
   id: string
   connectionId: string
   type: TabType
-  /** 显示标题，如 web-prod-01 / SFTP */
+  /** 显示标题，如 web-prod-01 / SFTP / AI */
   title: string
 }
 
@@ -233,5 +300,15 @@ export const DEFAULT_SETTINGS: AppSettings = {
     compression: false,
     autoReconnect: true,
     transferConcurrency: 4,
+  },
+  ai: {
+    provider: 'deepseek',
+    apiKey: '',
+    baseUrl: 'https://api.deepseek.com/v1',
+    model: 'deepseek-chat',
+    systemPrompt:
+      '你是一名经验丰富的 Linux 运维与开发专家，内置在 SSH 客户端 mssh 中。' +
+      '请简洁、准确地回答问题；涉及命令时优先给出可直接复制执行的代码块，' +
+      '并注明适用场景与风险。回答使用与用户提问相同的语言。',
   },
 }

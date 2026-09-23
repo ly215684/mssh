@@ -92,6 +92,7 @@ export default {
   'term.autoRetrying': 'Auto-reconnecting (attempt {n}/{max})',
   'term.stopRetry': 'Stop auto-reconnect',
   'term.sftp': 'SFTP',
+  'term.ai': 'AI Assistant',
   'term.docker': 'Docker',
   'term.cron': 'Scheduled Tasks',
 
@@ -262,6 +263,39 @@ export default {
   'cron.useScript': 'Use Script',
   'cron.selectedFile': 'Selected',
 
+  // AI assistant
+  'ai.newChat': 'New chat',
+  'ai.untitled': 'New chat',
+  'ai.noChats': 'No conversations yet',
+  'ai.deleteChatConfirm': 'Delete this conversation?',
+  'ai.notConfigured': 'Model not configured',
+  'ai.send': 'Send',
+  'ai.stop': 'Stop',
+  'ai.inputPh': 'Ask anything…',
+  'ai.inputDisabledPh': 'Configure an AI model in settings first',
+  'ai.enterHint': 'Enter to send · Shift+Enter for newline',
+  'ai.setupTitle': 'Configure AI Assistant',
+  'ai.setupDesc':
+    'Works with any OpenAI-compatible API: DeepSeek, OpenAI, Kimi, Qwen, GLM, Doubao and more. ' +
+    'Pick a provider and enter your API key to start. The key is encrypted and stored locally.',
+  'ai.goSetup': 'Configure',
+  'ai.welcomeTitle': "Hi, I'm your AI ops assistant",
+  'ai.welcomeDesc':
+    'Ask me about Linux commands, scripting, error diagnosis, Docker or networking. ' +
+    'Code blocks in replies can be copied with one click.',
+  'ai.suggestDisk': 'How do I check disk usage on Linux?',
+  'ai.suggestLargeFile': 'How do I find the largest files on the system?',
+  'ai.suggestPort': 'How do I see processes listening on ports?',
+  'ai.suggestCpu': 'How do I find the top CPU-consuming processes?',
+  'ai.thinking': 'Thinking…',
+  'ai.failed': 'Request failed',
+  'ai.retry': 'Regenerate',
+  'ai.copy': 'Copy',
+  'ai.copied': 'Copied',
+  'ai.copyCode': 'Copy code',
+  'ai.copyMsg': 'Copy reply',
+  'ai.providerCustom': 'Custom (OpenAI-compatible)',
+
   // Status bar
   'status.protocol': 'SSH2',
   'status.encoding': 'UTF-8',
@@ -369,6 +403,30 @@ export default {
   'settings.transferConcurrency': 'Transfer concurrency',
   'settings.transferConcurrencyDesc':
     'Concurrent SFTP requests (1-64). If the server resets the connection during transfers, lower this to 1 (compatibility mode)',
+  'settings.ai': 'AI Assistant',
+  'settings.aiProvider': 'Provider',
+  'settings.aiProviderDesc':
+    'Pick a mainstream provider to auto-fill the endpoint, or choose custom for any OpenAI-compatible service',
+  'settings.aiApiKey': 'API Key',
+  'settings.aiApiKeyDesc':
+    'Encrypted by the OS and stored in the local data directory; used only for model API calls',
+  'settings.aiKeyPh': 'Enter API key',
+  'settings.aiBaseUrl': 'Base URL',
+  'settings.aiModel': 'Model',
+  'settings.aiModelDesc': 'Model name; for Volcengine Ark etc. use the endpoint ID (ep-xxx)',
+  'settings.aiSystemPrompt': 'System prompt',
+  'settings.aiSystemPromptDesc':
+    'Define the assistant role and answering style; applies to new questions',
+  'settings.aiTest': 'Test connection',
+  'settings.aiTestOk': 'Connection successful. Model reply: ',
+  'settings.aiTestOkOnly': 'Connection successful',
+  'settings.aiTestFail': 'Connection failed: ',
+  'settings.aiErrTimeout':
+    'Connection timed out. Requests use the system proxy automatically; make sure your proxy/VPN has system proxy enabled and can reach this endpoint',
+  'settings.aiErrProxy':
+    'Cannot reach the system proxy server. Check that your proxy app is running and the system proxy settings are correct',
+  'settings.aiErrDns':
+    'Cannot resolve the API host. Check the Base URL and your network/DNS settings',
 
   // Messages
   'msg.saved': 'Saved',

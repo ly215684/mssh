@@ -113,6 +113,25 @@ const api: RendererApi = {
   localTouch: p => ipcRenderer.invoke('local:touch', p),
   localExtract: p => ipcRenderer.invoke('local:extract', p),
 
+  aiStart: messages => ipcRenderer.invoke('ai:start', messages),
+  aiAbort: reqId => ipcRenderer.invoke('ai:abort', reqId),
+  aiTest: ai => ipcRenderer.invoke('ai:test', ai),
+  onAiDelta: cb => {
+    const l = listener<[string, string]>((id, delta) => cb(id, delta))
+    ipcRenderer.on('ai:delta', l)
+    return () => ipcRenderer.off('ai:delta', l)
+  },
+  onAiDone: cb => {
+    const l = listener<[string]>(id => cb(id))
+    ipcRenderer.on('ai:done', l)
+    return () => ipcRenderer.off('ai:done', l)
+  },
+  onAiError: cb => {
+    const l = listener<[string, string]>((id, msg) => cb(id, msg))
+    ipcRenderer.on('ai:error', l)
+    return () => ipcRenderer.off('ai:error', l)
+  },
+
   updateActive: () => ipcRenderer.invoke('update:active'),
   updateCheck: () => ipcRenderer.invoke('update:check'),
   updateDownload: () => ipcRenderer.invoke('update:download'),

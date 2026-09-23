@@ -386,6 +386,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
   restore: async (tabs, activeTabId) => {
     for (const tab of tabs) {
+      // 兼容旧版本遗留的无连接全局工具标签（如早期 AI 标签）
+      if (!tab.connectionId) continue
       if (tab.type === 'terminal') await get().openTerminal(tab.connectionId)
       else if (tab.type === 'docker') await get().openDocker(tab.connectionId)
       else if (tab.type === 'cron') await get().openCron(tab.connectionId)

@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type {
+  AiSettings,
   AppSettings,
   Language,
   SshSettings,
@@ -18,6 +19,7 @@ interface AppState {
   setLanguage: (l: Language) => void
   setTerminal: (patch: Partial<TerminalSettings>) => void
   setSsh: (patch: Partial<SshSettings>) => void
+  setAi: (patch: Partial<AiSettings>) => void
 }
 
 /** 应用设置 store（语言/主题等，持久化由主进程 configStore 负责） */
@@ -46,6 +48,12 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setSsh: patch => {
     const settings = { ...get().settings, ssh: { ...get().settings.ssh, ...patch } }
+    set({ settings })
+    window.api.saveSettings(settings)
+  },
+
+  setAi: patch => {
+    const settings = { ...get().settings, ai: { ...get().settings.ai, ...patch } }
     set({ settings })
     window.api.saveSettings(settings)
   },

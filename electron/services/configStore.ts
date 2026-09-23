@@ -61,30 +61,57 @@ function decryptSecret(stored: string | undefined): string {
 
 // ---------- 配置读写 ----------
 
+/** 深拷贝默认设置（嵌套对象需独立，避免运行时修改污染常量） */
+function defaultSettings(): AppSettings {
+  return {
+    ...DEFAULT_SETTINGS,
+    terminal: { ...DEFAULT_SETTINGS.terminal },
+    ssh: { ...DEFAULT_SETTINGS.ssh },
+    ai: { ...DEFAULT_SETTINGS.ai },
+  }
+}
+
 function readConfig(): StoredConfig {
   ensureDir()
   try {
     const raw = fs.readFileSync(CONFIG_FILE, 'utf8')
     const parsed = JSON.parse(raw) as Partial<StoredConfig>
+    // 嵌套对象需与默认值合并，保证旧配置升级后新增字段有默认值
+    const settings: AppSettings = {
+      ...defaultSettings(),
+      ...parsed.settings,
+      terminal: { ...DEFAULT_SETTINGS.terminal, ...parsed.settings?.terminal },
+      ssh: { ...DEFAULT_SETTINGS.ssh, ...parsed.settings?.ssh },
+      ai: { ...DEFAULT_SETTINGS.ai, ...parsed.settings?.ai },
+    }
+    // API Key 落盘为密文，读取后还原明文
+    settings.ai.apiKey = decryptSecret(settings.ai.apiKey)
     return {
-      // 嵌套对象需与默认值合并，保证旧配置升级后新增字段有默认值
-      settings: {
-        ...DEFAULT_SETTINGS,
-        ...parsed.settings,
-        terminal: { ...DEFAULT_SETTINGS.terminal, ...parsed.settings?.terminal },
-        ssh: { ...DEFAULT_SETTINGS.ssh, ...parsed.settings?.ssh },
-      },
+      settings,
       connections: parsed.connections ?? [],
       groups: parsed.groups ?? [],
     }
   } catch {
-    return { settings: { ...DEFAULT_SETTINGS }, connections: [], groups: [] }
+    return { settings: defaultSettings(), connections: [], groups: [] }
   }
 }
 
 function writeConfig(cfg: StoredConfig) {
   ensureDir()
-  fs.writeFileSync(CONFIG_FILE, JSON.stringify(cfg, null, 2), 'utf8')
+  // API Key 加密后落盘（复制一层，避免把传入的明文 settings 改成密文）
+  const stored: StoredConfig = {
+    ...cfg,
+    settings: {
+      ...cfg.settings,
+      ai: { ...cfg.settings.ai, apiKey: encryptSecret(cfg.settings.ai.apiKey) },
+    },
+  }
+  fs.writeFileSync(CONFIG_FILE, JSON.stringify(stored, null, 2), 'utf8')
+}
+
+/** 仅读取设置（供主进程内部服务使用，如 AI 服务读取最新 Key） */
+export function getSettings(): AppSettings {
+  return readConfig().settings
 }
 
 export function getAll(): AllConfig {

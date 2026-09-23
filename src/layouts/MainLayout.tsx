@@ -11,6 +11,7 @@ import { TerminalView } from '../pages/terminal/TerminalView'
 import { SftpView } from '../pages/sftp/SftpView'
 import { DockerView } from '../pages/docker/DockerView'
 import { CronView } from '../pages/cron/CronView'
+import { AiFloatingPanel } from '../pages/ai/AiView'
 import { Button } from '../components/ui'
 
 /** 全局快捷键：Ctrl+Tab 切换标签 / Ctrl+W 关闭标签 / Ctrl+N 新建连接 / Ctrl+, 设置 */
@@ -78,6 +79,8 @@ export function MainLayout() {
             ) : (
               <Welcome onQuick={() => setQuickConnOpen(true)} onNew={() => openNewConn()} />
             )}
+            {/* AI 助手：仅在 SSH 终端页悬浮于右侧，不占用标签 */}
+            {activeTab?.type === 'terminal' && <AiFloatingPanel />}
           </div>
           <StatusBar />
         </main>

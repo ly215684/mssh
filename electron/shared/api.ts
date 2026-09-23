@@ -1,6 +1,9 @@
 import type {
+  AiSettings,
+  AiTestResult,
   AllConfig,
   AppSettings,
+  ChatMessage,
   ConnGroup,
   Connection,
   ExecResult,
@@ -123,6 +126,20 @@ export interface RendererApi {
   localTouch: (path: string) => Promise<void>
   /** 本地解压（解压到同目录） */
   localExtract: (path: string) => Promise<void>
+
+  // ---- AI 对话（OpenAI 兼容接口，主进程代理流式请求，避免 CORS 并保护 Key） ----
+  /** 发起流式对话，返回请求 id；增量经 onAiDelta/onAiDone/onAiError 推送 */
+  aiStart: (messages: ChatMessage[]) => Promise<string>
+  /** 中止进行中的对话 */
+  aiAbort: (reqId: string) => void
+  /** 用当前配置做连通性测试（非流式最小请求），成功带回一句模型回复 */
+  aiTest: (ai: AiSettings) => Promise<AiTestResult>
+  /** 模型输出增量订阅，返回取消订阅函数 */
+  onAiDelta: (cb: (reqId: string, delta: string) => void) => () => void
+  /** 对话正常结束（含主动中止）订阅，返回取消订阅函数 */
+  onAiDone: (cb: (reqId: string) => void) => () => void
+  /** 对话失败订阅，返回取消订阅函数 */
+  onAiError: (cb: (reqId: string, message: string) => void) => () => void
 
   // ---- 自动更新 ----
   /** 更新器是否可用（dev / 未签名环境为 false） */

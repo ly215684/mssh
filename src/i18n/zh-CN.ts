@@ -92,6 +92,7 @@ export default {
   'term.autoRetrying': '正在自动重连（第 {n}/{max} 次）',
   'term.stopRetry': '停止自动重连',
   'term.sftp': 'SFTP',
+  'term.ai': 'AI 助手',
   'term.docker': 'Docker 管理',
   'term.cron': '定时任务管理',
 
@@ -256,6 +257,38 @@ export default {
   'cron.useScript': '使用该脚本',
   'cron.selectedFile': '已选择',
 
+  // AI 助手
+  'ai.newChat': '新对话',
+  'ai.untitled': '新对话',
+  'ai.noChats': '暂无对话',
+  'ai.deleteChatConfirm': '确定删除这个对话吗？',
+  'ai.notConfigured': '未配置模型',
+  'ai.send': '发送',
+  'ai.stop': '停止',
+  'ai.inputPh': '输入你的问题…',
+  'ai.inputDisabledPh': '请先在设置中配置 AI 模型',
+  'ai.enterHint': 'Enter 发送 · Shift+Enter 换行',
+  'ai.setupTitle': '配置 AI 助手',
+  'ai.setupDesc':
+    '支持 DeepSeek、OpenAI、Kimi、通义千问、智谱 GLM、豆包等所有 OpenAI 兼容接口。' +
+    '选择服务商并填写 API Key 后即可开始提问，密钥会加密保存在本地。',
+  'ai.goSetup': '前往配置',
+  'ai.welcomeTitle': '你好，我是 AI 运维助手',
+  'ai.welcomeDesc':
+    'Linux 命令、脚本编写、报错排查、Docker 与网络配置都可以问我，回复中的代码块可一键复制。',
+  'ai.suggestDisk': '如何查看 Linux 磁盘占用？',
+  'ai.suggestLargeFile': '如何查找系统中占用空间最大的文件？',
+  'ai.suggestPort': '如何查看正在监听端口的进程？',
+  'ai.suggestCpu': '如何查看占用 CPU 最高的进程？',
+  'ai.thinking': '正在思考…',
+  'ai.failed': '请求失败',
+  'ai.retry': '重新生成',
+  'ai.copy': '复制',
+  'ai.copied': '已复制',
+  'ai.copyCode': '复制代码',
+  'ai.copyMsg': '复制回复',
+  'ai.providerCustom': '自定义（OpenAI 兼容）',
+
   // 状态栏
   'status.protocol': 'SSH2',
   'status.encoding': 'UTF-8',
@@ -362,6 +395,26 @@ export default {
   'settings.transferConcurrency': '传输并发数',
   'settings.transferConcurrencyDesc':
     'SFTP 传输的并发请求数（1-64）。若传输时连接被服务器重置，请调低至 1（兼容模式）',
+  'settings.ai': 'AI 助手',
+  'settings.aiProvider': '服务商',
+  'settings.aiProviderDesc':
+    '选择主流大模型服务商将自动填充接口地址；选择自定义可接入任意 OpenAI 兼容服务',
+  'settings.aiApiKey': 'API Key',
+  'settings.aiApiKeyDesc': '密钥经系统加密后保存在本地数据目录，仅用于调用模型接口',
+  'settings.aiKeyPh': '输入 API Key',
+  'settings.aiBaseUrl': '接口地址（Base URL）',
+  'settings.aiModel': '模型',
+  'settings.aiModelDesc': '填写模型名称；火山方舟等服务需填写接入点 ID（ep-xxx）',
+  'settings.aiSystemPrompt': '系统提示词',
+  'settings.aiSystemPromptDesc': '定义助手的角色与回答风格，保存后对新提问生效',
+  'settings.aiTest': '测试连接',
+  'settings.aiTestOk': '连接成功，模型回复',
+  'settings.aiTestOkOnly': '连接成功',
+  'settings.aiTestFail': '连接失败：',
+  'settings.aiErrTimeout':
+    '连接超时：请求已自动走系统代理，请确认代理/VPN 已开启系统代理且可正常访问该接口',
+  'settings.aiErrProxy': '无法连接到系统代理服务器，请检查代理软件是否正在运行及系统代理设置',
+  'settings.aiErrDns': '无法解析接口域名，请检查 Base URL 是否正确以及网络/DNS 设置',
 
   // 消息
   'msg.saved': '已保存',

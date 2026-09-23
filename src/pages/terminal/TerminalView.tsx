@@ -1,7 +1,8 @@
-import { CalendarClock, Container, Download, Power, Upload } from 'lucide-react'
+import { Bot, CalendarClock, Container, Download, Power, Upload } from 'lucide-react'
 import type { SessionTab } from '../../../electron/shared/types'
 import { useConnStore } from '../../stores/connStore'
 import { useSessionStore, SSH_RETRY_MAX_ATTEMPTS } from '../../stores/sessionStore'
+import { useUiStore } from '../../stores/uiStore'
 import { useT } from '../../i18n/I18nProvider'
 import { Term } from './Terminal'
 import { Spinner, Tooltip } from '../../components/ui'
@@ -17,6 +18,8 @@ export function TerminalView({ tab }: { tab: SessionTab }) {
   const openDocker = useSessionStore(s => s.openDocker)
   const openCron = useSessionStore(s => s.openCron)
   const disconnect = useSessionStore(s => s.disconnect)
+  const aiPanelOpen = useUiStore(s => s.aiPanelOpen)
+  const toggleAiPanel = useUiStore(s => s.toggleAiPanel)
 
   if (!conn) return null
 
@@ -34,6 +37,18 @@ export function TerminalView({ tab }: { tab: SessionTab }) {
           :{conn.port}
         </span>
         <div className="flex-1" />
+        <Tooltip label={t('term.ai')}>
+          <button
+            onClick={() => toggleAiPanel()}
+            className={`size-7 flex items-center justify-center rounded-md transition-colors ${
+              aiPanelOpen
+                ? 'bg-accent-dim text-accent'
+                : 'text-dim hover:text-accent hover:bg-accent-dim'
+            }`}
+          >
+            <Bot size={15} />
+          </button>
+        </Tooltip>
         <Tooltip label={t('term.docker')}>
           <button
             onClick={() => openDocker(tab.connectionId)}

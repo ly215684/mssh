@@ -221,6 +221,10 @@ export interface DockerContainer {
   status: string
   /** 端口映射文本 */
   ports: string
+  /** CPU 使用率，如 "1.23%" */
+  cpu?: string
+  /** 内存使用量，如 "12.34MiB / 1GiB" */
+  mem?: string
 }
 
 /** Docker 镜像（docker images 解析结果） */

@@ -154,19 +154,37 @@ export function DockerView({ tab }: { tab: SessionTab }) {
       setErrKind(null)
       setVersion(ver.stdout.trim())
 
-      const [psRes, imgRes] = await Promise.all([
+      const [psRes, imgRes, statsRes] = await Promise.all([
         window.api.sshExec(sessionId, "docker ps -a --format '{{json .}}'"),
         window.api.sshExec(sessionId, "docker images --format '{{json .}}'"),
+        window.api.sshExec(
+          sessionId,
+          "docker stats --no-stream --format '{{json .}}' 2>/dev/null || true",
+        ),
       ])
+      const statsMap = new Map<string, { cpu: string; mem: string }>()
+      for (const r of parseJsonl(statsRes.stdout)) {
+        const id = String(r.Container ?? r.ID ?? '')
+        const name = String(r.Name ?? '')
+        if (id) statsMap.set(id, { cpu: String(r.CPUPerc ?? ''), mem: String(r.MemUsage ?? '') })
+        if (name) statsMap.set(name, { cpu: String(r.CPUPerc ?? ''), mem: String(r.MemUsage ?? '') })
+      }
       setContainers(
-        parseJsonl(psRes.stdout).map(r => ({
-          id: String(r.ID ?? ''),
-          name: String(r.Names ?? ''),
-          image: String(r.Image ?? ''),
-          state: String(r.State ?? '').toLowerCase(),
-          status: String(r.Status ?? ''),
-          ports: String(r.Ports ?? ''),
-        })),
+        parseJsonl(psRes.stdout).map(r => {
+          const id = String(r.ID ?? '')
+          const name = String(r.Names ?? '')
+          const stats = statsMap.get(id) ?? statsMap.get(name)
+          return {
+            id,
+            name,
+            image: String(r.Image ?? ''),
+            state: String(r.State ?? '').toLowerCase(),
+            status: String(r.Status ?? ''),
+            ports: String(r.Ports ?? ''),
+            cpu: stats?.cpu,
+            mem: stats?.mem,
+          }
+        }),
       )
       setImages(
         parseJsonl(imgRes.stdout).map(r => ({
@@ -215,7 +233,7 @@ export function DockerView({ tab }: { tab: SessionTab }) {
     [sessionId, t, load, runOp],
   )
 
-  /** 删除容器：运行中强制停止后删除 */
+  /** 删除容器：运行中强制停止后删除；随后询问是否同时删除镜像 */
   const removeContainer = useCallback(
     async (c: DockerContainer) => {
       if (!sessionId) return
@@ -234,6 +252,24 @@ export function DockerView({ tab }: { tab: SessionTab }) {
             return
           }
           message.success(t('docker.removeDone', { name: c.name }))
+          // 询问是否同时删除容器使用的镜像
+          const removeImg = await confirm({
+            title: t('docker.removeImageTitle'),
+            content: t('docker.removeContainerAlsoImage', { image: c.image }),
+            danger: true,
+          })
+          if (removeImg) {
+            try {
+              const imgRes = await window.api.sshExec(sessionId, `docker rmi ${shq(c.image)}`)
+              if (imgRes.code !== 0) {
+                await errorAlert(t('docker.actionFailed'), imgRes.stderr.trim() || imgRes.stdout.trim())
+              } else {
+                message.success(t('docker.removeDone', { name: c.image }))
+              }
+            } catch (e) {
+              await errorAlert(t('docker.actionFailed'), e)
+            }
+          }
           void load()
         } catch (e) {
           await errorAlert(t('docker.actionFailed'), e)
@@ -431,6 +467,12 @@ export function DockerView({ tab }: { tab: SessionTab }) {
                           {t('docker.colStatus')}
                         </th>
                         <th className="font-normal px-3 h-9 text-left whitespace-nowrap">
+                          {t('docker.colCpu')}
+                        </th>
+                        <th className="font-normal px-3 h-9 text-left whitespace-nowrap">
+                          {t('docker.colMem')}
+                        </th>
+                        <th className="font-normal px-3 h-9 text-left whitespace-nowrap">
                           {t('docker.colPorts')}
                         </th>
                       </tr>
@@ -458,6 +500,16 @@ export function DockerView({ tab }: { tab: SessionTab }) {
                           </td>
                           <td className={`px-3 h-9 whitespace-nowrap ${stateColor(c.state)}`}>
                             {c.status}
+                          </td>
+                          <td className="px-3 h-9">
+                            <span className="text-dim font-mono text-xs whitespace-nowrap">
+                              {c.cpu || '-'}
+                            </span>
+                          </td>
+                          <td className="px-3 h-9">
+                            <span className="text-dim font-mono text-xs whitespace-nowrap">
+                              {c.mem || '-'}
+                            </span>
                           </td>
                           <td className="px-3 h-9">
                             <span className="text-dim font-mono text-xs max-w-[280px] truncate inline-block align-middle">

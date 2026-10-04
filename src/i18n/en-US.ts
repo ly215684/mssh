@@ -54,6 +54,8 @@ export default {
   'editor.cancel': 'Cancel',
   'editor.close': 'Close',
   'editor.dirtyConfirm': 'The file has unsaved changes. Close anyway?',
+  'editor.filesInDir': 'Files in Folder',
+  'editor.refreshFiles': 'Refresh List',
 
   // New connection
   'newConn.title': 'New Connection',

@@ -54,6 +54,8 @@ export default {
   'editor.cancel': '取消',
   'editor.close': '关闭',
   'editor.dirtyConfirm': '文件有未保存的修改，确定关闭吗？',
+  'editor.filesInDir': '目录文件',
+  'editor.refreshFiles': '刷新列表',
 
   // 新建连接
   'newConn.title': '新建连接',

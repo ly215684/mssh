@@ -74,6 +74,8 @@ export default {
   'newConn.passphrase': 'Key passphrase (optional)',
   'newConn.group': 'Group',
   'newConn.groupNone': 'None',
+  'newConn.x11': 'X11 forwarding',
+  'newConn.x11Desc': 'Run remote GUI apps (requires a local X server)',
 
   // Quick connect
   'quick.title': 'Quick Connect',
@@ -93,6 +95,8 @@ export default {
   'term.reconnect': 'Click here to reconnect',
   'term.autoRetrying': 'Auto-reconnecting (attempt {n}/{max})',
   'term.stopRetry': 'Stop auto-reconnect',
+  'term.x11LocalFailed':
+    'X11 forwarding failed: cannot reach local X server ({target}). Start VcXsrv / Xming (check "Disable access control"), or change the X11 display address in Settings → SSH',
   'term.sftp': 'SFTP',
   'term.ai': 'AI Assistant',
   'term.docker': 'Docker',
@@ -408,6 +412,9 @@ export default {
   'settings.transferConcurrency': 'Transfer concurrency',
   'settings.transferConcurrencyDesc':
     'Concurrent SFTP requests (1-64). If the server resets the connection during transfers, lower this to 1 (compatibility mode)',
+  'settings.x11Display': 'X11 display address',
+  'settings.x11DisplayDesc':
+    'DISPLAY address of the local X server (host:display, e.g. 127.0.0.1:0). On Windows run VcXsrv/Xming first; empty defaults to :0',
   'settings.ai': 'AI Assistant',
   'settings.aiProvider': 'Provider',
   'settings.aiProviderDesc':

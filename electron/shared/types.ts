@@ -19,6 +19,8 @@ export interface Connection {
   privateKeyPath?: string
   /** 私钥口令 */
   keyPassphrase?: string
+  /** 启用 X11 转发（在远程运行图形界面程序，需本地 X 服务器） */
+  x11Forwarding?: boolean
   /** 所属分组 id */
   groupId?: string | null
   createdAt: number
@@ -56,6 +58,8 @@ export interface SshSettings {
   autoReconnect: boolean
   /** SFTP 传输并发请求数（1-64）。服务器 sftp 实现兼容性差时应调低 */
   transferConcurrency: number
+  /** 本地 X 服务器的 DISPLAY 地址（主机:显示号，如 127.0.0.1:0；留空按 :0 处理） */
+  x11Display: string
 }
 
 export type Language = 'zh-CN' | 'en-US'
@@ -304,6 +308,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     compression: false,
     autoReconnect: true,
     transferConcurrency: 4,
+    x11Display: '',
   },
   ai: {
     provider: 'deepseek',

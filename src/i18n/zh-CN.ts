@@ -74,6 +74,8 @@ export default {
   'newConn.passphrase': '私钥口令（可选）',
   'newConn.group': '所在分组',
   'newConn.groupNone': '不分组',
+  'newConn.x11': 'X11 转发',
+  'newConn.x11Desc': '在远程运行图形界面程序（需本地运行 X 服务器）',
 
   // 快速连接
   'quick.title': '快速连接',
@@ -93,6 +95,8 @@ export default {
   'term.reconnect': '点击此处重新连接',
   'term.autoRetrying': '正在自动重连（第 {n}/{max} 次）',
   'term.stopRetry': '停止自动重连',
+  'term.x11LocalFailed':
+    'X11 转发失败：无法连接本地 X 服务器（{target}）。请确认已启动 VcXsrv / Xming（建议勾选 Disable access control），或在 设置 → SSH 中修改 X11 显示地址',
   'term.sftp': 'SFTP',
   'term.ai': 'AI 助手',
   'term.docker': 'Docker 管理',
@@ -400,6 +404,9 @@ export default {
   'settings.transferConcurrency': '传输并发数',
   'settings.transferConcurrencyDesc':
     'SFTP 传输的并发请求数（1-64）。若传输时连接被服务器重置，请调低至 1（兼容模式）',
+  'settings.x11Display': 'X11 显示地址',
+  'settings.x11DisplayDesc':
+    '本地 X 服务器的 DISPLAY 地址（主机:显示号，如 127.0.0.1:0）；Windows 需运行 VcXsrv/Xming，留空默认 :0',
   'settings.ai': 'AI 助手',
   'settings.aiProvider': '服务商',
   'settings.aiProviderDesc':

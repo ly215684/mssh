@@ -69,6 +69,8 @@ export interface RendererApi {
   onSshExit: (sessionId: string, cb: (reason: string) => void) => () => void
   /** 全局 SSH 退出事件（不过滤会话），返回取消订阅函数 */
   onAnySshExit: (cb: (sessionId: string, reason: string) => void) => () => void
+  /** X11 转发：本地 X 服务器不可达通知（target 为尝试连接的地址），返回取消订阅函数 */
+  onSshX11Error: (cb: (sessionId: string, target: string) => void) => () => void
 
   // ---- SFTP（远程） ----
   sftpList: (sessionId: string, dir: string) => Promise<FileInfo[]>

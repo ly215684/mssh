@@ -1,6 +1,7 @@
 import { Client, type ClientChannel, type ConnectConfig, type SFTPWrapper } from 'ssh2'
 import { randomUUID } from 'node:crypto'
 import fs from 'node:fs'
+import net from 'node:net'
 import { StringDecoder } from 'node:string_decoder'
 import { BrowserWindow } from 'electron'
 import type { Connection, ExecResult, SshSessionInfo, SshSettings, SysStats } from '../shared/types'
@@ -107,6 +108,32 @@ function humanizeAuthError(err: unknown, cfg: Connection): Error {
   return err instanceof Error ? err : new Error(msg)
 }
 
+/** X11 转发目标：本地 X 服务器地址（TCP 或 unix socket） */
+type X11Target = net.TcpNetConnectOpts | net.IpcNetConnectOpts
+
+/**
+ * 解析 DISPLAY 形式的本地 X 服务器地址（[主机]:显示号[.屏幕]），端口 = 6000 + 显示号。
+ * Windows 恒走 TCP（VcXsrv/Xming 监听 TCP 6000+）；
+ * POSIX 下本机地址（空 / localhost / unix）走 /tmp/.X11-unix/X<n> socket，其余走 TCP。
+ * 留空时回落到环境变量 DISPLAY，再回落到 :0。
+ */
+function resolveX11Target(display?: string): X11Target {
+  const raw = display?.trim() || process.env.DISPLAY || ':0'
+  const m = raw.match(/^(?<host>[^:]*):(?<num>\d+)(?:\.\d+)?$/)
+  const host = m?.groups?.host ?? ''
+  const num = m?.groups?.num ? parseInt(m.groups.num, 10) : 0
+  if (process.platform !== 'win32' && (host === '' || host === 'localhost' || host === 'unix')) {
+    return { path: `/tmp/.X11-unix/X${num}` }
+  }
+  return { host: host === '' || host === 'unix' ? '127.0.0.1' : host, port: 6000 + num }
+}
+
+/** 供错误提示展示的 X 服务器地址文本 */
+function x11TargetLabel(display?: string): string {
+  const t = resolveX11Target(display)
+  return 'path' in t ? t.path : `${t.host}:${t.port}`
+}
+
 /**
  * 建立 SSH 连接并打开交互式 shell。
  * 成功后注册会话，终端输出通过 `ssh:data` 事件推送给渲染进程。
@@ -140,33 +167,40 @@ export function connect(cfg: Connection, sshSettings: SshSettings): Promise<SshS
     })
 
     conn.on('ready', () => {
-      conn.shell({ term: 'xterm-256color' }, (err, stream) => {
-        if (err) {
-          conn.end()
+      conn.shell(
+        {
+          term: 'xterm-256color',
+          // X11 转发：请求服务器为该会话设置 DISPLAY 并回连 X 通道
+          ...(cfg.x11Forwarding ? { x11: { single: false, screen: 0 } } : {}),
+        },
+        (err, stream) => {
+          if (err) {
+            conn.end()
+            if (!settled) {
+              settled = true
+              reject(err)
+            }
+            return
+          }
+          session.stream = stream
+
+          // StringDecoder 处理跨包截断的多字节字符
+          const decoder = new StringDecoder('utf8')
+          stream.on('data', (d: Buffer) => {
+            broadcast('ssh:data', id, decoder.write(d))
+          })
+          stream.on('close', () => {
+            conn.end()
+            removeAndNotify(id, 'Shell 会话已结束（服务器端退出）')
+          })
+
+          sessions.set(id, session)
           if (!settled) {
             settled = true
-            reject(err)
+            resolve(session.info)
           }
-          return
-        }
-        session.stream = stream
-
-        // StringDecoder 处理跨包截断的多字节字符
-        const decoder = new StringDecoder('utf8')
-        stream.on('data', (d: Buffer) => {
-          broadcast('ssh:data', id, decoder.write(d))
-        })
-        stream.on('close', () => {
-          conn.end()
-          removeAndNotify(id, 'Shell 会话已结束（服务器端退出）')
-        })
-
-        sessions.set(id, session)
-        if (!settled) {
-          settled = true
-          resolve(session.info)
-        }
-      })
+        },
+      )
     })
 
     conn.on('error', err => {
@@ -212,6 +246,28 @@ export function connect(cfg: Connection, sshSettings: SshSettings): Promise<SshS
       const answer = cfg.authType === 'password' ? (cfg.password ?? '') : (cfg.keyPassphrase ?? '')
       finish(prompts.map(() => answer))
     })
+
+    // X11 转发：远端 X 客户端经 SSH 通道回连，桥接到本地 X 服务器（VcXsrv/Xming 等）。
+    // 本地 X 服务器不可达时每会话只提示一次，避免远程程序重试造成弹窗刷屏。
+    if (cfg.x11Forwarding) {
+      let x11ErrorNotified = false
+      conn.on('x11', (_details, accept) => {
+        const xchan = accept()
+        const sock = net.connect(resolveX11Target(sshSettings.x11Display))
+        sock.on('error', () => {
+          xchan.close()
+          if (!x11ErrorNotified) {
+            x11ErrorNotified = true
+            broadcast('ssh:x11:error', id, x11TargetLabel(sshSettings.x11Display))
+          }
+        })
+        sock.on('close', () => xchan.close())
+        xchan.on('close', () => sock.destroy())
+        // ssh2 的 pipe 声明使用其自带的 WritableStream 接口，net.Socket 需做一次类型桥接
+        xchan.pipe(sock as unknown as Parameters<ClientChannel['pipe']>[0])
+        sock.pipe(xchan)
+      })
+    }
 
     conn.connect(connectCfg)
   })

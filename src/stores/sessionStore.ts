@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import type { SessionTab, SshSessionInfo } from '../../electron/shared/types'
 import { useConnStore } from './connStore'
 import { useAppStore } from './appStore'
-import { errorAlert } from '../components/ui'
+import { errorAlert, message } from '../components/ui'
 import { getGlobalT } from '../i18n/I18nProvider'
 
 export type ConnSessionStatus = 'connecting' | 'connected' | 'closed' | 'error'
@@ -192,6 +192,10 @@ export function initSshEvents() {
     const { markClosed } = useSessionStore.getState()
     const connectionId = sessionOwners.get(sessionId)
     if (connectionId) markClosed(connectionId, reason)
+  })
+  // X11 转发：本地 X 服务器不可达时提示（主进程已按会话去重）
+  window.api.onSshX11Error((_sessionId, target) => {
+    message.warning(getGlobalT()('term.x11LocalFailed', { target }))
   })
 }
 

@@ -12,6 +12,7 @@ import {
   PasswordInput,
   Segmented,
   Select,
+  Switch,
   message,
 } from '../../components/ui'
 
@@ -200,6 +201,17 @@ export function NewConnectionModal() {
             />
           </Field>
         )}
+
+        <div className="flex items-center justify-between gap-4">
+          <div className="min-w-0">
+            <div className="text-[13px] text-dim">{t('newConn.x11')}</div>
+            <div className="text-xs text-faint mt-0.5">{t('newConn.x11Desc')}</div>
+          </div>
+          <Switch
+            checked={form.x11Forwarding ?? false}
+            onChange={v => patch({ x11Forwarding: v })}
+          />
+        </div>
       </div>
     </Modal>
   )

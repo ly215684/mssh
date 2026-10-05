@@ -69,6 +69,11 @@ const api: RendererApi = {
     ipcRenderer.on('ssh:exit', l)
     return () => ipcRenderer.off('ssh:exit', l)
   },
+  onSshX11Error: cb => {
+    const l = listener<[string, string]>((id, target) => cb(id, target))
+    ipcRenderer.on('ssh:x11:error', l)
+    return () => ipcRenderer.off('ssh:x11:error', l)
+  },
 
   sftpList: (sessionId, dir) => ipcRenderer.invoke('sftp:list', sessionId, dir),
   sftpMkdir: (sessionId, dir) => ipcRenderer.invoke('sftp:mkdir', sessionId, dir),

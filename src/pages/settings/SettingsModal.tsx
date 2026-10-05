@@ -230,6 +230,14 @@ export function SettingsModal() {
                   onChange={e => setSsh({ transferConcurrency: number(e.target.value, 4) })}
                 />
               </Row>
+              <Row label={t('settings.x11Display')} desc={t('settings.x11DisplayDesc')}>
+                <Input
+                  value={settings.ssh.x11Display}
+                  onChange={e => setSsh({ x11Display: e.target.value.trim() })}
+                  placeholder="127.0.0.1:0"
+                  spellCheck={false}
+                />
+              </Row>
             </div>
           )}
 

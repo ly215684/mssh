@@ -75,7 +75,7 @@ export default {
   'newConn.group': 'Group',
   'newConn.groupNone': 'None',
   'newConn.x11': 'X11 forwarding',
-  'newConn.x11Desc': 'Run remote GUI apps (requires a local X server)',
+  'newConn.x11Desc': 'Run remote GUI apps; on Windows run VcXsrv/Xming first, and the server must enable X11Forwarding',
 
   // Quick connect
   'quick.title': 'Quick Connect',
@@ -414,7 +414,7 @@ export default {
     'Concurrent SFTP requests (1-64). If the server resets the connection during transfers, lower this to 1 (compatibility mode)',
   'settings.x11Display': 'X11 display address',
   'settings.x11DisplayDesc':
-    'DISPLAY address of the local X server (host:display, e.g. 127.0.0.1:0). On Windows run VcXsrv/Xming first; empty defaults to :0',
+    'DISPLAY address of the local X server (host:display; display N maps to TCP port 6000+N, e.g. 127.0.0.1:0 → 6000). On Windows run VcXsrv/Xming with "Disable access control" checked; empty defaults to :0',
   'settings.ai': 'AI Assistant',
   'settings.aiProvider': 'Provider',
   'settings.aiProviderDesc':

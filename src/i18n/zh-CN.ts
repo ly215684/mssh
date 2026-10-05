@@ -75,7 +75,7 @@ export default {
   'newConn.group': '所在分组',
   'newConn.groupNone': '不分组',
   'newConn.x11': 'X11 转发',
-  'newConn.x11Desc': '在远程运行图形界面程序（需本地运行 X 服务器）',
+  'newConn.x11Desc': '在远程运行图形界面程序；Windows 需先运行 VcXsrv/Xming，服务器需启用 X11Forwarding',
 
   // 快速连接
   'quick.title': '快速连接',
@@ -406,7 +406,7 @@ export default {
     'SFTP 传输的并发请求数（1-64）。若传输时连接被服务器重置，请调低至 1（兼容模式）',
   'settings.x11Display': 'X11 显示地址',
   'settings.x11DisplayDesc':
-    '本地 X 服务器的 DISPLAY 地址（主机:显示号，如 127.0.0.1:0）；Windows 需运行 VcXsrv/Xming，留空默认 :0',
+    '本地 X 服务器的 DISPLAY 地址（主机:显示号，显示号 N 对应 TCP 端口 6000+N，如 127.0.0.1:0 → 6000）；Windows 需运行 VcXsrv/Xming 并勾选 Disable access control，留空默认 :0',
   'settings.ai': 'AI 助手',
   'settings.aiProvider': '服务商',
   'settings.aiProviderDesc':

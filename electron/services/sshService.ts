@@ -251,15 +251,26 @@ export function connect(cfg: Connection, sshSettings: SshSettings): Promise<SshS
     // 本地 X 服务器不可达时每会话只提示一次，避免远程程序重试造成弹窗刷屏。
     if (cfg.x11Forwarding) {
       let x11ErrorNotified = false
+      const notifyX11Error = () => {
+        if (x11ErrorNotified) return
+        x11ErrorNotified = true
+        broadcast('ssh:x11:error', id, x11TargetLabel(sshSettings.x11Display))
+      }
+      // 认证成功后主动探测一次本地 X 服务器，尽早提示而不是等用户启动 GUI 程序才失败
+      conn.on('ready', () => {
+        const probe = net.connect(resolveX11Target(sshSettings.x11Display))
+        probe.once('connect', () => probe.destroy())
+        probe.once('error', () => {
+          probe.destroy()
+          notifyX11Error()
+        })
+      })
       conn.on('x11', (_details, accept) => {
         const xchan = accept()
         const sock = net.connect(resolveX11Target(sshSettings.x11Display))
         sock.on('error', () => {
           xchan.close()
-          if (!x11ErrorNotified) {
-            x11ErrorNotified = true
-            broadcast('ssh:x11:error', id, x11TargetLabel(sshSettings.x11Display))
-          }
+          notifyX11Error()
         })
         sock.on('close', () => xchan.close())
         xchan.on('close', () => sock.destroy())

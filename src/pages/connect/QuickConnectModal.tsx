@@ -9,7 +9,7 @@ import { Button, Input, Modal, PasswordInput, message } from '../../components/u
 
 /** 解析 user@host:port */
 function parseTarget(raw: string): { host: string; port: number; username: string } | null {
-  const m = raw.trim().match(/^(?:(.+?)@)?(\[[\w:.]+\]|[\w.\-]+)(?::(\d{1,5}))?$/)
+  const m = raw.trim().match(/^(?:(.+?)@)?(\[[\w:.]+\]|[\w.-]+)(?::(\d{1,5}))?$/)
   if (!m) return null
   return {
     username: m[1] || 'root',

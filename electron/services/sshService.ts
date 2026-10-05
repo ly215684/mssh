@@ -1,4 +1,4 @@
-import { Client, type ClientChannel, type ConnectConfig } from 'ssh2'
+import { Client, type ClientChannel, type ConnectConfig, type SFTPWrapper } from 'ssh2'
 import { randomUUID } from 'node:crypto'
 import fs from 'node:fs'
 import { StringDecoder } from 'node:string_decoder'
@@ -9,7 +9,7 @@ export interface SshSession {
   id: string
   conn: Client
   stream: ClientChannel | null
-  sftp: import('ssh2').SFTPWrapper | null
+  sftp: SFTPWrapper | null
   info: SshSessionInfo
   connCfg: Connection
   sshSettings: SshSettings

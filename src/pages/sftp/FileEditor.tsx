@@ -77,6 +77,11 @@ export function FileEditor({ open, sessionId, path, onClose }: FileEditorProps) 
   useEffect(() => {
     if (!open || !containerRef.current) return
 
+    // 两个 Map 在组件生命周期内不会被重新赋值（仅原地增删），
+    // 拷贝到局部变量供 cleanup 使用（满足 react-hooks 对 ref.current 的告警）
+    const buffers = buffersRef.current
+    const inflight = inflightRef.current
+
     const editor = monaco.editor.create(containerRef.current, {
       theme: getMonacoTheme(theme),
       automaticLayout: true,
@@ -128,15 +133,15 @@ export function FileEditor({ open, sessionId, path, onClose }: FileEditorProps) 
 
     return () => {
       changeSub.dispose()
-      buffersRef.current.forEach(b => b.model.dispose())
-      buffersRef.current.clear()
+      buffers.forEach(b => b.model.dispose())
+      buffers.clear()
       tempModelRef.current?.dispose()
       tempModelRef.current = null
       editor.dispose()
       editorRef.current = null
       activePathRef.current = ''
       desiredRef.current = ''
-      inflightRef.current.clear()
+      inflight.clear()
       setSiblings([])
       setDirtyPaths(new Set())
       setLineCount(0)

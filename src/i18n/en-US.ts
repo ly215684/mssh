@@ -60,6 +60,7 @@ export default {
   // New connection
   'newConn.title': 'New Connection',
   'newConn.titleEdit': 'Edit Connection',
+  'newConn.protocol': 'Protocol',
   'newConn.name': 'Name',
   'newConn.namePh': 'e.g. Production Server',
   'newConn.host': 'Host',
@@ -76,6 +77,7 @@ export default {
   'newConn.groupNone': 'None',
   'newConn.x11': 'X11 forwarding',
   'newConn.x11Desc': 'Run remote GUI apps; on Windows run VcXsrv/Xming first, and the server must enable X11Forwarding',
+  'newConn.telnetAuthHint': 'Leave blank to log in interactively; filled username/password will answer login/password prompts automatically',
 
   // Quick connect
   'quick.title': 'Quick Connect',

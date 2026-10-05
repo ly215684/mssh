@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { ArrowRight, Save } from 'lucide-react'
-import type { AuthType, Connection } from '../../../electron/shared/types'
+import type { AuthType, Connection, ConnProtocol } from '../../../electron/shared/types'
 import { useConnStore } from '../../stores/connStore'
 import { useSessionStore } from '../../stores/sessionStore'
 import { useUiStore } from '../../stores/uiStore'
@@ -18,6 +18,7 @@ import {
 
 const DEFAULT_CONN: Omit<Connection, 'id' | 'createdAt'> = {
   name: '',
+  protocol: 'ssh',
   host: '',
   port: 22,
   username: 'root',
@@ -74,11 +75,17 @@ export function NewConnectionModal() {
       message.warning(t('msg.hostRequired'))
       return
     }
-    const name = form.name.trim() || `${form.username}@${form.host}`
+    const isTelnet = form.protocol === 'telnet'
+    const name =
+      form.name.trim() ||
+      (isTelnet && !form.username.trim()
+        ? `${form.host.trim()}:${form.port}`
+        : `${form.username}@${form.host.trim()}`)
     const conn: Connection = {
       ...form,
       name,
       host: form.host.trim(),
+      username: form.username.trim(),
       id: editing?.id ?? crypto.randomUUID(),
       createdAt: editing?.createdAt ?? Date.now(),
     }
@@ -113,6 +120,33 @@ export function NewConnectionModal() {
       }
     >
       <div className="flex flex-col gap-3.5 pt-1">
+        <Field label={t('newConn.protocol')}>
+          <Segmented<ConnProtocol>
+            value={form.protocol ?? 'ssh'}
+            onChange={v => {
+              // 跟随协议切换默认端口/用户名（仅在仍为另一协议默认值时联动，
+              // telnet 默认用户名为空 → 不启用自动登录）
+              const portPatch =
+                v === 'telnet' && form.port === 22
+                  ? { port: 23 }
+                  : v === 'ssh' && form.port === 23
+                    ? { port: 22 }
+                    : {}
+              const userPatch =
+                v === 'telnet' && form.username === 'root'
+                  ? { username: '' }
+                  : v === 'ssh' && form.username === ''
+                    ? { username: 'root' }
+                    : {}
+              patch({ protocol: v, ...portPatch, ...userPatch })
+            }}
+            options={[
+              { label: 'SSH', value: 'ssh' },
+              { label: 'Telnet', value: 'telnet' },
+            ]}
+          />
+        </Field>
+
         <Field label={t('newConn.name')}>
           <Input
             value={form.name}
@@ -135,7 +169,9 @@ export function NewConnectionModal() {
             <Input
               type="number"
               value={form.port}
-              onChange={e => patch({ port: Number(e.target.value) || 22 })}
+              onChange={e =>
+                patch({ port: Number(e.target.value) || (form.protocol === 'telnet' ? 23 : 22) })
+              }
             />
           </Field>
           <Field label={t('newConn.username')} className="flex-1">
@@ -143,49 +179,61 @@ export function NewConnectionModal() {
           </Field>
         </div>
 
-        <Field label={t('newConn.authType')}>
-          <Segmented<AuthType>
-            value={form.authType}
-            onChange={v => patch({ authType: v })}
-            options={[
-              { label: t('newConn.password'), value: 'password' },
-              { label: t('newConn.privateKey'), value: 'key' },
-            ]}
-          />
-        </Field>
-
-        {form.authType === 'password' ? (
+        {form.protocol === 'telnet' ? (
           <Field label={t('newConn.password')}>
             <PasswordInput
               value={form.password ?? ''}
               onChange={e => patch({ password: e.target.value })}
             />
+            <div className="text-xs text-faint mt-1.5">{t('newConn.telnetAuthHint')}</div>
           </Field>
         ) : (
           <>
-            <Field label={t('newConn.keyPath')}>
-              <div className="flex gap-2">
-                <Input
-                  value={form.privateKeyPath ?? ''}
-                  onChange={e => patch({ privateKeyPath: e.target.value })}
-                  placeholder="~/.ssh/id_rsa"
-                />
-                <Button
-                  onClick={async () => {
-                    const p = await window.api.pickPrivateKey()
-                    if (p) patch({ privateKeyPath: p })
-                  }}
-                >
-                  {t('newConn.browse')}
-                </Button>
-              </div>
-            </Field>
-            <Field label={t('newConn.passphrase')}>
-              <PasswordInput
-                value={form.keyPassphrase ?? ''}
-                onChange={e => patch({ keyPassphrase: e.target.value })}
+            <Field label={t('newConn.authType')}>
+              <Segmented<AuthType>
+                value={form.authType}
+                onChange={v => patch({ authType: v })}
+                options={[
+                  { label: t('newConn.password'), value: 'password' },
+                  { label: t('newConn.privateKey'), value: 'key' },
+                ]}
               />
             </Field>
+
+            {form.authType === 'password' ? (
+              <Field label={t('newConn.password')}>
+                <PasswordInput
+                  value={form.password ?? ''}
+                  onChange={e => patch({ password: e.target.value })}
+                />
+              </Field>
+            ) : (
+              <>
+                <Field label={t('newConn.keyPath')}>
+                  <div className="flex gap-2">
+                    <Input
+                      value={form.privateKeyPath ?? ''}
+                      onChange={e => patch({ privateKeyPath: e.target.value })}
+                      placeholder="~/.ssh/id_rsa"
+                    />
+                    <Button
+                      onClick={async () => {
+                        const p = await window.api.pickPrivateKey()
+                        if (p) patch({ privateKeyPath: p })
+                      }}
+                    >
+                      {t('newConn.browse')}
+                    </Button>
+                  </div>
+                </Field>
+                <Field label={t('newConn.passphrase')}>
+                  <PasswordInput
+                    value={form.keyPassphrase ?? ''}
+                    onChange={e => patch({ keyPassphrase: e.target.value })}
+                  />
+                </Field>
+              </>
+            )}
           </>
         )}
 
@@ -202,16 +250,18 @@ export function NewConnectionModal() {
           </Field>
         )}
 
-        <div className="flex items-center justify-between gap-4">
-          <div className="min-w-0">
-            <div className="text-[13px] text-dim">{t('newConn.x11')}</div>
-            <div className="text-xs text-faint mt-0.5">{t('newConn.x11Desc')}</div>
+        {form.protocol !== 'telnet' && (
+          <div className="flex items-center justify-between gap-4">
+            <div className="min-w-0">
+              <div className="text-[13px] text-dim">{t('newConn.x11')}</div>
+              <div className="text-xs text-faint mt-0.5">{t('newConn.x11Desc')}</div>
+            </div>
+            <Switch
+              checked={form.x11Forwarding ?? false}
+              onChange={v => patch({ x11Forwarding: v })}
+            />
           </div>
-          <Switch
-            checked={form.x11Forwarding ?? false}
-            onChange={v => patch({ x11Forwarding: v })}
-          />
-        </div>
+        )}
       </div>
     </Modal>
   )

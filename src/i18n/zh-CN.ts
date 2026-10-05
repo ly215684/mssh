@@ -60,6 +60,7 @@ export default {
   // 新建连接
   'newConn.title': '新建连接',
   'newConn.titleEdit': '编辑连接',
+  'newConn.protocol': '协议',
   'newConn.name': '连接名称',
   'newConn.namePh': '例: 生产服务器',
   'newConn.host': '主机地址',
@@ -76,6 +77,7 @@ export default {
   'newConn.groupNone': '不分组',
   'newConn.x11': 'X11 转发',
   'newConn.x11Desc': '在远程运行图形界面程序；Windows 需先运行 VcXsrv/Xming，服务器需启用 X11Forwarding',
+  'newConn.telnetAuthHint': '留空则在终端中交互登录；填写用户名/密码后将自动应答 login/password 提示',
 
   // 快速连接
   'quick.title': '快速连接',

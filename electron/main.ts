@@ -4,6 +4,7 @@ import path from 'node:path'
 import { registerAllIpc } from './ipc'
 import { initAutoUpdater } from './services/autoUpdateService'
 import { disconnectAll } from './services/sshService'
+import { disconnectAll as telnetDisconnectAll } from './services/telnetService'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -79,6 +80,7 @@ app.on('before-quit', e => {
   e.preventDefault()
   isQuitting = true
   disconnectAll()
+  telnetDisconnectAll()
   // 500ms 足以让 TCP 发送 FIN；兜底 2s 强制退出，避免卡死
   const force = setTimeout(() => app.exit(0), 2000)
   setTimeout(() => {

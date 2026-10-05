@@ -5,12 +5,18 @@
 /** 认证方式 */
 export type AuthType = 'password' | 'key'
 
+/** 连接协议 */
+export type ConnProtocol = 'ssh' | 'telnet'
+
 /** 服务器连接配置 */
 export interface Connection {
   id: string
   name: string
+  /** 连接协议（缺省为 ssh，旧配置无此字段） */
+  protocol?: ConnProtocol
   host: string
   port: number
+  /** SSH 必填；Telnet 可选（填写后自动应答 login/password 提示） */
   username: string
   authType: AuthType
   /** 密码（由 configStore 加密存储，渲染进程拿到的是明文或空） */

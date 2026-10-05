@@ -49,7 +49,8 @@ export function StatusBar() {
   // 减少 sshStats（内部约 1.5s）对 SSH 通道的占用
   useEffect(() => {
     const sessionId = connSession?.sshSessionId
-    if (connSession?.status !== 'connected' || !sessionId) {
+    // Telnet 无远程资源采集能力（无 exec 通道），不轮询
+    if (connSession?.status !== 'connected' || !sessionId || conn?.protocol === 'telnet') {
       setStats(null)
       return
     }
@@ -73,14 +74,18 @@ export function StatusBar() {
       cancelled = true
       clearTimeout(timer)
     }
-  }, [connSession?.status, connSession?.sshSessionId])
+  }, [connSession?.status, connSession?.sshSessionId, conn?.protocol])
 
   return (
     <div className="flex items-center gap-4 px-3 h-[var(--statusbar-h)] bg-panel border-t border-bd text-[11px] text-dim shrink-0">
       {activeTab && conn ? (
         <>
-          <span className="text-accent font-medium">{t('status.protocol')}</span>
-          <span className="mono">{connSession?.info?.cipher || '—'}</span>
+          <span className="text-accent font-medium">
+            {conn.protocol === 'telnet' ? 'TELNET' : t('status.protocol')}
+          </span>
+          {conn.protocol !== 'telnet' && (
+            <span className="mono">{connSession?.info?.cipher || '—'}</span>
+          )}
           <span className="mono">
             {conn.host}:{conn.port}
           </span>
@@ -118,7 +123,7 @@ export function StatusBar() {
           {connSession?.status === 'connected' && (
             <span className="flex items-center gap-1.5">
               <span className="size-1.5 rounded-full bg-accent" />
-              {connSession.info?.username}@{conn.name}
+              {connSession.info?.username ? `${connSession.info.username}@${conn.name}` : conn.name}
             </span>
           )}
           {(connSession?.status === 'error' || connSession?.status === 'closed') && (

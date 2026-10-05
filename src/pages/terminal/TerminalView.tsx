@@ -25,16 +25,20 @@ export function TerminalView({ tab }: { tab: SessionTab }) {
 
   const status = connSession?.status
   const sessionId = connSession?.sshSessionId ?? null
+  // Telnet 无 SFTP/Docker/Cron 能力，隐藏相关入口
+  const isTelnet = conn.protocol === 'telnet'
 
   return (
     <div className="flex flex-col h-full bg-bg">
       {/* 工具行 */}
       <div className="flex items-center gap-2 h-9 px-3 border-b border-bd shrink-0">
         <span className="text-xs text-dim mono">
-          <span className="text-accent">
-            {conn.username}@{conn.host}
-          </span>
-          :{conn.port}
+          {conn.username && (
+            <>
+              <span className="text-accent">{conn.username}@</span>
+            </>
+          )}
+          <span className={conn.username ? '' : 'text-accent'}>{conn.host}</span>:{conn.port}
         </span>
         <div className="flex-1" />
         <Tooltip label={t('term.ai')}>
@@ -49,38 +53,42 @@ export function TerminalView({ tab }: { tab: SessionTab }) {
             <Bot size={15} />
           </button>
         </Tooltip>
-        <Tooltip label={t('term.docker')}>
-          <button
-            onClick={() => openDocker(tab.connectionId)}
-            className="size-7 flex items-center justify-center rounded-md text-dim hover:text-accent hover:bg-accent-dim transition-colors"
-          >
-            <Container size={15} />
-          </button>
-        </Tooltip>
-        <Tooltip label={t('term.cron')}>
-          <button
-            onClick={() => openCron(tab.connectionId)}
-            className="size-7 flex items-center justify-center rounded-md text-dim hover:text-accent hover:bg-accent-dim transition-colors"
-          >
-            <CalendarClock size={15} />
-          </button>
-        </Tooltip>
-        <Tooltip label={t('term.upload')}>
-          <button
-            onClick={() => openSftp(tab.connectionId)}
-            className="size-7 flex items-center justify-center rounded-md text-dim hover:text-fg hover:bg-hover transition-colors"
-          >
-            <Upload size={15} />
-          </button>
-        </Tooltip>
-        <Tooltip label={t('term.download')}>
-          <button
-            onClick={() => openSftp(tab.connectionId)}
-            className="size-7 flex items-center justify-center rounded-md text-dim hover:text-fg hover:bg-hover transition-colors"
-          >
-            <Download size={15} />
-          </button>
-        </Tooltip>
+        {!isTelnet && (
+          <>
+            <Tooltip label={t('term.docker')}>
+              <button
+                onClick={() => openDocker(tab.connectionId)}
+                className="size-7 flex items-center justify-center rounded-md text-dim hover:text-accent hover:bg-accent-dim transition-colors"
+              >
+                <Container size={15} />
+              </button>
+            </Tooltip>
+            <Tooltip label={t('term.cron')}>
+              <button
+                onClick={() => openCron(tab.connectionId)}
+                className="size-7 flex items-center justify-center rounded-md text-dim hover:text-accent hover:bg-accent-dim transition-colors"
+              >
+                <CalendarClock size={15} />
+              </button>
+            </Tooltip>
+            <Tooltip label={t('term.upload')}>
+              <button
+                onClick={() => openSftp(tab.connectionId)}
+                className="size-7 flex items-center justify-center rounded-md text-dim hover:text-fg hover:bg-hover transition-colors"
+              >
+                <Upload size={15} />
+              </button>
+            </Tooltip>
+            <Tooltip label={t('term.download')}>
+              <button
+                onClick={() => openSftp(tab.connectionId)}
+                className="size-7 flex items-center justify-center rounded-md text-dim hover:text-fg hover:bg-hover transition-colors"
+              >
+                <Download size={15} />
+              </button>
+            </Tooltip>
+          </>
+        )}
         <Tooltip label={t('term.disconnect')}>
           <button
             onClick={() => disconnect(tab.connectionId)}

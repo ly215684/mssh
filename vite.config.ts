@@ -19,6 +19,16 @@ export default defineConfig({
     // 注入应用版本号（StatusBar 显示 / 关于信息）
     __APP_VERSION__: JSON.stringify(pkg.version),
   },
+  // noVNC 1.7 的模块含顶层 await（WebCodecs H264 能力探测），需 es2022 target；
+  // Electron 30 内置 Chromium 124，原生支持 TLA
+  build: {
+    target: 'es2022',
+  },
+  optimizeDeps: {
+    esbuildOptions: {
+      target: 'es2022',
+    },
+  },
   plugins: [
     tailwindcss(),
     react(),
@@ -31,6 +41,9 @@ export default defineConfig({
             alias: {
               // ssh2 可选原生依赖 cpu-features 的 JS 桩（避免打包原生绑定）
               'cpu-features': path.resolve(__dirname, 'electron/shims/cpu-features.cjs'),
+              // ws 可选原生依赖桩（求值抛错触发 ws 内置纯 JS 回退；ESM 静态 import 无法 try/catch）
+              bufferutil: path.resolve(__dirname, 'electron/shims/bufferutil.cjs'),
+              'utf-8-validate': path.resolve(__dirname, 'electron/shims/utf-8-validate.cjs'),
             },
           },
           build: {

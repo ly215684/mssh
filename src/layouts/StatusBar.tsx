@@ -49,8 +49,8 @@ export function StatusBar() {
   // 减少 sshStats（内部约 1.5s）对 SSH 通道的占用
   useEffect(() => {
     const sessionId = connSession?.sshSessionId
-    // Telnet 无远程资源采集能力（无 exec 通道），不轮询
-    if (connSession?.status !== 'connected' || !sessionId || conn?.protocol === 'telnet') {
+    // 仅 SSH 有远程资源采集能力（exec 通道），Telnet/VNC 不轮询
+    if (connSession?.status !== 'connected' || !sessionId || (conn?.protocol ?? 'ssh') !== 'ssh') {
       setStats(null)
       return
     }
@@ -81,9 +81,13 @@ export function StatusBar() {
       {activeTab && conn ? (
         <>
           <span className="text-accent font-medium">
-            {conn.protocol === 'telnet' ? 'TELNET' : t('status.protocol')}
+            {conn.protocol === 'vnc'
+              ? 'VNC'
+              : conn.protocol === 'telnet'
+                ? 'TELNET'
+                : t('status.protocol')}
           </span>
-          {conn.protocol !== 'telnet' && (
+          {(conn.protocol ?? 'ssh') === 'ssh' && (
             <span className="mono">{connSession?.info?.cipher || '—'}</span>
           )}
           <span className="mono">

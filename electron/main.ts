@@ -5,6 +5,7 @@ import { registerAllIpc } from './ipc'
 import { initAutoUpdater } from './services/autoUpdateService'
 import { disconnectAll } from './services/sshService'
 import { disconnectAll as telnetDisconnectAll } from './services/telnetService'
+import { disconnectAll as vncDisconnectAll } from './services/vncService'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -81,6 +82,7 @@ app.on('before-quit', e => {
   isQuitting = true
   disconnectAll()
   telnetDisconnectAll()
+  vncDisconnectAll()
   // 500ms 足以让 TCP 发送 FIN；兜底 2s 强制退出，避免卡死
   const force = setTimeout(() => app.exit(0), 2000)
   setTimeout(() => {

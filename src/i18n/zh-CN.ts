@@ -78,6 +78,7 @@ export default {
   'newConn.x11': 'X11 转发',
   'newConn.x11Desc': '在远程运行图形界面程序；Windows 需先运行 VcXsrv/Xming，服务器需启用 X11Forwarding',
   'newConn.telnetAuthHint': '留空则在终端中交互登录；填写用户名/密码后将自动应答 login/password 提示',
+  'newConn.vncAuthHint': 'VNC 服务器密码；服务器未启用认证可留空',
 
   // 快速连接
   'quick.title': '快速连接',
@@ -103,6 +104,13 @@ export default {
   'term.ai': 'AI 助手',
   'term.docker': 'Docker 管理',
   'term.cron': '定时任务管理',
+
+  // VNC
+  'vnc.ctrlAltDel': '发送 Ctrl+Alt+Del',
+  'vnc.fitWindow': '适应窗口',
+  'vnc.originalSize': '原始大小',
+  'vnc.viewOnly': '只读模式',
+  'vnc.interactive': '交互模式',
 
   // Docker
   'docker.containers': '容器',

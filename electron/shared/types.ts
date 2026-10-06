@@ -6,7 +6,7 @@
 export type AuthType = 'password' | 'key'
 
 /** 连接协议 */
-export type ConnProtocol = 'ssh' | 'telnet'
+export type ConnProtocol = 'ssh' | 'telnet' | 'vnc'
 
 /** 服务器连接配置 */
 export interface Connection {
@@ -151,7 +151,7 @@ export interface AppSettings {
 }
 
 /** 会话标签类型 */
-export type TabType = 'terminal' | 'sftp' | 'docker' | 'cron'
+export type TabType = 'terminal' | 'sftp' | 'docker' | 'cron' | 'vnc'
 
 /** 会话标签 */
 export interface SessionTab {
@@ -191,6 +191,8 @@ export interface SshSessionInfo {
   host: string
   port: number
   username: string
+  /** VNC 会话专用：主进程 WS→TCP 桥的本地地址（ws://127.0.0.1:port） */
+  wsUrl?: string
 }
 
 /** 远程服务器实时资源占用（CPU 1 秒采样，内存/磁盘快照） */

@@ -29,6 +29,9 @@ const DEFAULT_CONN: Omit<Connection, 'id' | 'createdAt'> = {
   groupId: null,
 }
 
+/** 各协议默认端口（协议切换联动用） */
+const PROTOCOL_DEFAULT_PORTS: Record<ConnProtocol, number> = { ssh: 22, telnet: 23, vnc: 5900 }
+
 function Field({
   label,
   children,
@@ -75,10 +78,11 @@ export function NewConnectionModal() {
       message.warning(t('msg.hostRequired'))
       return
     }
+    const isVnc = form.protocol === 'vnc'
     const isTelnet = form.protocol === 'telnet'
     const name =
       form.name.trim() ||
-      (isTelnet && !form.username.trim()
+      ((isTelnet || isVnc) && !form.username.trim()
         ? `${form.host.trim()}:${form.port}`
         : `${form.username}@${form.host.trim()}`)
     const conn: Connection = {
@@ -124,16 +128,14 @@ export function NewConnectionModal() {
           <Segmented<ConnProtocol>
             value={form.protocol ?? 'ssh'}
             onChange={v => {
-              // 跟随协议切换默认端口/用户名（仅在仍为另一协议默认值时联动，
-              // telnet 默认用户名为空 → 不启用自动登录）
+              // 跟随协议切换默认端口/用户名（仅在仍为上一协议默认值时联动，
+              // telnet/vnc 默认用户名为空 → 不启用自动登录/VNC 无用户名概念）
+              const DEFAULT_PORTS = PROTOCOL_DEFAULT_PORTS
+              const prev = form.protocol ?? 'ssh'
               const portPatch =
-                v === 'telnet' && form.port === 22
-                  ? { port: 23 }
-                  : v === 'ssh' && form.port === 23
-                    ? { port: 22 }
-                    : {}
+                form.port === DEFAULT_PORTS[prev] ? { port: DEFAULT_PORTS[v] } : {}
               const userPatch =
-                v === 'telnet' && form.username === 'root'
+                (v === 'telnet' || v === 'vnc') && form.username === 'root'
                   ? { username: '' }
                   : v === 'ssh' && form.username === ''
                     ? { username: 'root' }
@@ -143,6 +145,7 @@ export function NewConnectionModal() {
             options={[
               { label: 'SSH', value: 'ssh' },
               { label: 'Telnet', value: 'telnet' },
+              { label: 'VNC', value: 'vnc' },
             ]}
           />
         </Field>
@@ -170,16 +173,30 @@ export function NewConnectionModal() {
               type="number"
               value={form.port}
               onChange={e =>
-                patch({ port: Number(e.target.value) || (form.protocol === 'telnet' ? 23 : 22) })
+                patch({
+                  port:
+                    Number(e.target.value) ||
+                    PROTOCOL_DEFAULT_PORTS[form.protocol ?? 'ssh'],
+                })
               }
             />
           </Field>
-          <Field label={t('newConn.username')} className="flex-1">
-            <Input value={form.username} onChange={e => patch({ username: e.target.value })} />
-          </Field>
+          {(form.protocol ?? 'ssh') !== 'vnc' && (
+            <Field label={t('newConn.username')} className="flex-1">
+              <Input value={form.username} onChange={e => patch({ username: e.target.value })} />
+            </Field>
+          )}
         </div>
 
-        {form.protocol === 'telnet' ? (
+        {form.protocol === 'vnc' ? (
+          <Field label={t('newConn.password')}>
+            <PasswordInput
+              value={form.password ?? ''}
+              onChange={e => patch({ password: e.target.value })}
+            />
+            <div className="text-xs text-faint mt-1.5">{t('newConn.vncAuthHint')}</div>
+          </Field>
+        ) : form.protocol === 'telnet' ? (
           <Field label={t('newConn.password')}>
             <PasswordInput
               value={form.password ?? ''}
@@ -250,7 +267,7 @@ export function NewConnectionModal() {
           </Field>
         )}
 
-        {form.protocol !== 'telnet' && (
+        {(form.protocol ?? 'ssh') === 'ssh' && (
           <div className="flex items-center justify-between gap-4">
             <div className="min-w-0">
               <div className="text-[13px] text-dim">{t('newConn.x11')}</div>

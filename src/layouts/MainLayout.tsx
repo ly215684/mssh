@@ -11,6 +11,7 @@ import { TerminalView } from '../pages/terminal/TerminalView'
 import { SftpView } from '../pages/sftp/SftpView'
 import { DockerView } from '../pages/docker/DockerView'
 import { CronView } from '../pages/cron/CronView'
+import { VncView } from '../pages/vnc/VncView'
 import { AiFloatingPanel } from '../pages/ai/AiView'
 import { Button } from '../components/ui'
 
@@ -69,6 +70,8 @@ export function MainLayout() {
             {activeTab ? (
               activeTab.type === 'terminal' ? (
                 <TerminalView key={activeTab.id} tab={activeTab} />
+              ) : activeTab.type === 'vnc' ? (
+                <VncView key={activeTab.id} tab={activeTab} />
               ) : activeTab.type === 'docker' ? (
                 <DockerView key={activeTab.id} tab={activeTab} />
               ) : activeTab.type === 'cron' ? (

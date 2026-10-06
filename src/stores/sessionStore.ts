@@ -27,6 +27,7 @@ interface SessionState {
   openSftp: (connectionId: string) => Promise<void>
   openDocker: (connectionId: string) => Promise<void>
   openCron: (connectionId: string) => Promise<void>
+  openVnc: (connectionId: string) => Promise<void>
   closeTab: (tabId: string) => void
   setActive: (tabId: string) => void
   reconnect: (connectionId: string) => Promise<void>
@@ -44,6 +45,7 @@ function tabTitle(type: SessionTab['type'], connName: string): string {
   if (type === 'sftp') return 'SFTP'
   if (type === 'docker') return 'Docker'
   if (type === 'cron') return 'Cron'
+  // terminal / vnc 均显示连接名
   return connName
 }
 
@@ -206,6 +208,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   connSessions: {},
 
   openTerminal: async connectionId => {
+    // VNC 连接无文本终端，分流到 VNC 画面标签
+    const proto = useConnStore.getState().getConnection(connectionId)?.protocol
+    if (proto === 'vnc') return get().openVnc(connectionId)
     // 已存在终端标签则直接激活
     const existed = get().tabs.find(t => t.connectionId === connectionId && t.type === 'terminal')
     if (existed) {
@@ -219,6 +224,25 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       if (s.tabs.some(t => t.id === tabId)) return {}
       return {
         tabs: [...s.tabs, { id: tabId, connectionId, type: 'terminal', title: tabTitle('terminal', connName) }],
+        activeTabId: tabId,
+      }
+    })
+    get().saveLayout()
+  },
+
+  openVnc: async connectionId => {
+    const existed = get().tabs.find(t => t.connectionId === connectionId && t.type === 'vnc')
+    if (existed) {
+      set({ activeTabId: existed.id })
+      return
+    }
+    const tabId = `${connectionId}-vnc`
+    await ensureSession(get, set, connectionId)
+    const connName = useConnStore.getState().getConnection(connectionId)?.name ?? 'VNC'
+    set(s => {
+      if (s.tabs.some(t => t.id === tabId)) return {}
+      return {
+        tabs: [...s.tabs, { id: tabId, connectionId, type: 'vnc', title: tabTitle('vnc', connName) }],
         activeTabId: tabId,
       }
     })
@@ -393,6 +417,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       // 兼容旧版本遗留的无连接全局工具标签（如早期 AI 标签）
       if (!tab.connectionId) continue
       if (tab.type === 'terminal') await get().openTerminal(tab.connectionId)
+      else if (tab.type === 'vnc') await get().openVnc(tab.connectionId)
       else if (tab.type === 'docker') await get().openDocker(tab.connectionId)
       else if (tab.type === 'cron') await get().openCron(tab.connectionId)
       else await get().openSftp(tab.connectionId)

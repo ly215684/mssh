@@ -78,6 +78,7 @@ export default {
   'newConn.x11': 'X11 forwarding',
   'newConn.x11Desc': 'Run remote GUI apps; on Windows run VcXsrv/Xming first, and the server must enable X11Forwarding',
   'newConn.telnetAuthHint': 'Leave blank to log in interactively; filled username/password will answer login/password prompts automatically',
+  'newConn.vncAuthHint': 'VNC server password; leave blank if the server has no authentication enabled',
 
   // Quick connect
   'quick.title': 'Quick Connect',
@@ -103,6 +104,13 @@ export default {
   'term.ai': 'AI Assistant',
   'term.docker': 'Docker',
   'term.cron': 'Scheduled Tasks',
+
+  // VNC
+  'vnc.ctrlAltDel': 'Send Ctrl+Alt+Del',
+  'vnc.fitWindow': 'Fit to window',
+  'vnc.originalSize': 'Original size',
+  'vnc.viewOnly': 'View-only mode',
+  'vnc.interactive': 'Interactive mode',
 
   // Docker
   'docker.containers': 'Containers',

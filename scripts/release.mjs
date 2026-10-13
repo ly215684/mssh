@@ -74,6 +74,20 @@ if (!next || !/^\d+\.\d+\.\d+$/.test(next)) die(`无效的版本参数: "${arg}"
 const tag = `v${next}`
 if (run(`git tag -l ${tag}`)) die(`标签 ${tag} 已存在，请换一个版本号`)
 
+// ---------- 生成更新日志（上个 tag 以来的提交） ----------
+const notesPath = path.join(root, 'RELEASE_NOTES.md')
+const prevTag = canRun('git describe --tags --abbrev=0')
+  ? run('git describe --tags --abbrev=0').trim()
+  : null
+const range = prevTag ? `${prevTag}..HEAD` : 'HEAD'
+const commits = run(`git log --no-merges --pretty=format:"- %s (%h)" ${range}`).trim()
+const notes =
+  `## ${tag} 更新内容\n\n` +
+  (commits || '- 常规更新与问题修复') +
+  (prevTag ? `\n\n**完整变更**: ${prevTag}...${tag}\n` : '\n')
+writeFileSync(notesPath, notes, 'utf-8')
+console.log(`[release] 更新日志（${prevTag ? `${prevTag} 以来` : '全部提交'}）:\n${commits || '(无)'}`)
+
 // ---------- 更新版本号 ----------
 pkg.version = next
 writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n', 'utf-8')
@@ -85,7 +99,7 @@ console.log(`[release] ${pkg.version} -> ${next}  (branch: ${branch})`)
 
 // ---------- 提交 + 打 tag + 推送 ----------
 try {
-  run(`git add package.json`)
+  run(`git add package.json RELEASE_NOTES.md`)
   // 暂存区无变化 = 文件在 add 前被外部还原，明确报错而非让 commit 含糊失败
   if (!run('git diff --cached --name-only')) {
     die('package.json 的修改未能进入暂存区（文件被外部程序还原）。请关闭编辑器中的 package.json 标签页后重试。')

@@ -1111,7 +1111,8 @@ function JobModal({
   )
 }
 
-/** 小数字输入框（分钟 / 小时间隔等），自动夹紧到 min-max 并隐藏原生步进按钮 */
+/** 小数字输入框（分钟 / 小时间隔等），聚焦期间为自由文本（可清空），
+ *  输入合法整数时实时同步（夹紧到 min-max），失焦时非法/空值回退为上一个合法值 */
 function NumInput({
   value,
   min,
@@ -1123,15 +1124,35 @@ function NumInput({
   max: number
   onChange: (v: number) => void
 }) {
+  const [focused, setFocused] = useState(false)
+  const [text, setText] = useState(String(value))
+
+  const parse = (s: string): number | null => {
+    const v = s.trim()
+    if (!v) return null
+    const n = Number(v)
+    return Number.isInteger(n) ? n : null
+  }
+
   return (
     <input
       type="number"
       min={min}
       max={max}
-      value={value}
+      value={focused ? text : String(value)}
+      onFocus={() => {
+        setText(String(value))
+        setFocused(true)
+      }}
       onChange={e => {
-        const n = parseInt(e.target.value, 10)
-        if (!Number.isNaN(n)) onChange(clamp(n, min, max))
+        setText(e.target.value)
+        const n = parse(e.target.value)
+        if (n !== null) onChange(clamp(n, min, max))
+      }}
+      onBlur={() => {
+        // 失焦校验：非法/空值回退为当前有效值
+        if (parse(text) === null) setText(String(value))
+        setFocused(false)
       }}
       className="w-[72px] h-8 px-2 rounded-md bg-input border border-bd text-[13px] text-fg outline-none focus:border-accent hover:border-bd-strong transition-colors [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
     />

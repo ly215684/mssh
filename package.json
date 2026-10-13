@@ -1,7 +1,7 @@
 {
   "name": "mssh",
   "private": true,
-  "version": "0.0.38",
+  "version": "0.0.39",
   "description": "SSH & SFTP client built with Electron",
   "author": "mssh",
   "type": "module",

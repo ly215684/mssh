@@ -292,15 +292,20 @@ function parseCrontab(raw: string): { jobs: CronJob[]; lines: string[] } {
   return { jobs, lines }
 }
 
-/** 由任务列表 + 原始行重建 crontab 内容（新任务追加到末尾）。
+/** 由任务列表 + 原始行重建 crontab 内容（新任务追加到末尾，removedJobs 的行区间被剔除）。
  *  crontab 要求文件以换行符结尾，否则报 "missing newline before EOF"，故末尾补 \n */
-function serializeCrontab(lines: string[], nextJobs: CronJob[]): string {
+function serializeCrontab(lines: string[], nextJobs: CronJob[], removedJobs: CronJob[] = []): string {
   const out: string[] = []
   let i = 0
-  for (const j of nextJobs) {
-    if (j.id.startsWith('new')) continue
+  // 保留与删除的任务区间按起始行归并：保留区间重写为最新内容，删除区间仅跳过原始行
+  const spans = [
+    ...nextJobs.filter(j => !j.id.startsWith('new')).map(j => ({ j, removed: false })),
+    ...removedJobs.map(j => ({ j, removed: true })),
+  ].sort((a, b) => a.j.start - b.j.start)
+  for (const { j, removed } of spans) {
     while (i < j.start && i < lines.length) out.push(lines[i++])
     i = j.end
+    if (removed) continue
     if (j.comment.trim()) {
       for (const c of j.comment.split('\n')) out.push(`# ${c}`)
     }
@@ -455,7 +460,7 @@ export function CronView({ tab }: { tab: SessionTab }) {
       setSaving(true)
       try {
         await runOp(t('cron.opWriting'), async () => {
-          await writeCrontab(sessionId, serializeCrontab(rawLines, next))
+          await writeCrontab(sessionId, serializeCrontab(rawLines, next, [job]))
           message.success(t('cron.deleteDone'))
           void load()
         })

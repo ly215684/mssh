@@ -81,6 +81,7 @@ const api: RendererApi = {
   sftpRename: (sessionId, from, to) => ipcRenderer.invoke('sftp:rename', sessionId, from, to),
   sftpMove: (sessionId, paths, targetDir) =>
     ipcRenderer.invoke('sftp:move', sessionId, paths, targetDir),
+  sftpChmodExec: (sessionId, paths) => ipcRenderer.invoke('sftp:chmodExec', sessionId, paths),
   sftpRealpath: (sessionId, p) => ipcRenderer.invoke('sftp:realpath', sessionId, p),
   sftpHome: sessionId => ipcRenderer.invoke('sftp:home', sessionId),
   sftpReadFile: (sessionId, remotePath) => ipcRenderer.invoke('sftp:readFile', sessionId, remotePath),

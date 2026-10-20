@@ -44,6 +44,7 @@ export default {
   'ctx.touch': 'New File',
   'ctx.extract': 'Extract Here',
   'ctx.moveTo': 'Move to…',
+  'ctx.chmodExec': 'Add Execute Permission',
   'ctx.deleteFile': 'Delete',
   'ctx.open': 'Open',
   'editor.title': 'Edit Remote File',
@@ -350,6 +351,8 @@ export default {
   'sftp.opMoving': 'Moving…',
   'sftp.moveDone': 'Moved successfully',
   'sftp.deleteDone': 'Deleted successfully',
+  'sftp.opChmodExec': 'Adding execute permission…',
+  'sftp.chmodDone': 'Execute permission added',
   'sftp.opExtracting': 'Extracting {name}…',
   'sftp.unzipMissingTitle': 'unzip not installed',
   'sftp.unzipMissingPrompt':

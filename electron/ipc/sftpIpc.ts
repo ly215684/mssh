@@ -11,6 +11,9 @@ export function registerSftpIpc() {
   ipcMain.handle('sftp:move', (_e, sessionId: string, paths: string[], targetDir: string) =>
     sftp.move(sessionId, paths, targetDir),
   )
+  ipcMain.handle('sftp:chmodExec', (_e, sessionId: string, paths: string[]) =>
+    sftp.chmodExec(sessionId, paths),
+  )
   ipcMain.handle('sftp:realpath', (_e, sessionId: string, p: string) => sftp.realpath(sessionId, p))
   ipcMain.handle('sftp:home', (_e, sessionId: string) => sftp.home(sessionId))
   // 文本文件读写（用于远程编辑）

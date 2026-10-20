@@ -24,10 +24,46 @@ interface BufferEntry {
 }
 
 /**
+ * Makefile 类文件（Makefile、Makefile.am、GNUmakefile、*.mk 等）
+ * 中 Tab 与行尾空白都有语义（recipe 行必须以 Tab 开头，变量值里的行尾空格会被保留），
+ * 粘贴时不做 Tab→空格 转换、也不清理行尾空白
+ */
+function isMakefileLike(name: string): boolean {
+  const lower = name.toLowerCase()
+  return lower === 'gnumakefile' || lower.startsWith('makefile') || lower.endsWith('.mk')
+}
+
+/**
+ * 粘贴内容规范化（从 Windows 等外部来源复制进来的文本）：
+ * 换行 CRLF/CR → LF、不换行空格/全角空格 → 半角空格、Tab 按制表位展开为空格、清理行尾空白
+ * @param keepWhitespace Makefile 类文件传 true：Tab 与行尾空白原样保留（其余规则照常）
+ */
+function normalizePastedText(text: string, tabSize: number, keepWhitespace: boolean): string {
+  const size = tabSize > 0 ? tabSize : 4
+  const normalized = text
+    .replace(/\r\n?/g, '\n') // CRLF / CR → LF
+    .replace(/[\u00A0\u3000]/g, ' ') // 不换行空格 / 全角空格 → 半角空格
+  return normalized
+    .split('\n')
+    .map(line => {
+      if (keepWhitespace) return line
+      // Tab 按制表位展开，保证多行粘贴后的缩进对齐
+      let out = ''
+      for (const ch of line) {
+        out += ch === '\t' ? ' '.repeat(size - (out.length % size)) : ch
+      }
+      return out.replace(/[ \t]+$/, '')
+    })
+    .join('\n')
+}
+
+/**
  * 远程文本文件编辑器（基于 Monaco Editor）
  * - 通过 SFTP 读取/写入文本内容
  * - 大小上限可配置，二进制文件直接拒绝（主进程校验）
  * - 支持语法高亮、行号、多光标、撤销重做
+ * - 粘贴（Ctrl+V / Cmd+V / 右键菜单粘贴）时自动规范化换行与空格，
+ *   再交给 Monaco 插入；Makefile 类文件保留 Tab 与行尾空白
  * - 右侧列出同目录下所有可编辑文件，点击即可快速切换；
  *   各文件内容与未保存修改按 model 独立保留，切换不丢失
  * - 存在未保存修改关闭前二次确认
@@ -128,10 +164,64 @@ export function FileEditor({ open, sessionId, path, onClose }: FileEditorProps) 
       handleSaveRef.current()
     })
 
+    // 粘贴规范化：捕获阶段拦截原生 paste 事件（Ctrl+V / Cmd+V / 系统菜单粘贴），
+    // 转换换行与空格后再交给 Monaco 的粘贴逻辑插入，光标与撤销行为保持不变
+    const container = containerRef.current
+    /** 已由命令处理过的粘贴（右键菜单粘贴等），用于避免紧随其后的原生粘贴重复插入 */
+    let handledByCommand = false
+
+    const insertNormalized = (raw: string) => {
+      const model = editor.getModel()
+      if (!model || !raw) return
+      const fileName = activePathRef.current.split('/').pop() ?? ''
+      editor.trigger('keyboard', 'paste', {
+        text: normalizePastedText(raw, model.getOptions().tabSize, isMakefileLike(fileName)),
+        pasteOnNewLine: false,
+        multicursorText: null,
+        mode: null,
+      })
+    }
+
+    const onPaste = (e: ClipboardEvent) => {
+      if (handledByCommand) {
+        // 同一次操作已插入过，仅阻止浏览器/Monaco 再次插入
+        e.preventDefault()
+        e.stopPropagation()
+        return
+      }
+      const model = editor.getModel()
+      // 仅拦截编辑区内的纯文本粘贴：查找/替换框等内部输入框不处理，
+      // 非文本内容（图片、文件）也交回 Monaco 默认逻辑
+      if (!model || !editor.hasTextFocus()) return
+      const raw = e.clipboardData?.getData('text/plain') ?? ''
+      if (!raw) return
+      e.preventDefault()
+      e.stopPropagation()
+      insertNormalized(raw)
+    }
+    container.addEventListener('paste', onPaste, true)
+
+    // Monaco 自带右键菜单/命令面板的「粘贴」走内部 clipboardService，不触发 DOM paste 事件，
+    // 这里用同名 command 覆盖（Monaco 同 id 命令后注册者优先生效）：
+    // 改为读取主进程剪贴板，规范化后再走 Monaco 的粘贴逻辑
+    const pasteAction = editor.addAction({
+      id: 'editor.action.clipboardPasteAction',
+      label: 'Paste',
+      run: () => {
+        handledByCommand = true
+        setTimeout(() => {
+          handledByCommand = false
+        }, 0)
+        void window.api.clipboardReadText().then(text => insertNormalized(text ?? ''))
+      },
+    })
+
     // 自动聚焦
     editor.focus()
 
     return () => {
+      container.removeEventListener('paste', onPaste, true)
+      pasteAction.dispose()
       changeSub.dispose()
       buffers.forEach(b => b.model.dispose())
       buffers.clear()

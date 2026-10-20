@@ -79,6 +79,8 @@ export interface RendererApi {
   sftpRename: (sessionId: string, from: string, to: string) => Promise<void>
   /** 远程批量移动（文件/文件夹 rename；同名冲突询问，目录覆盖为合并），返回实际移动条目数 */
   sftpMove: (sessionId: string, paths: string[], targetDir: string) => Promise<number>
+  /** 批量添加执行权限（保留原有读写位，仅补 u+x/g+x/o+x），返回成功条目数 */
+  sftpChmodExec: (sessionId: string, paths: string[]) => Promise<number>
   sftpRealpath: (sessionId: string, path: string) => Promise<string>
   sftpHome: (sessionId: string) => Promise<string>
   /** 读取远程文本文件（>2MB 或二进制会抛错） */

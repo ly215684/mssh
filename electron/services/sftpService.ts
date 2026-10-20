@@ -202,6 +202,26 @@ async function removeRemoteAny(sftp: SFTPWrapper, p: string, isDir: boolean): Pr
   await rmRemoteDir(sftp, p)
 }
 
+/**
+ * 远程批量添加执行权限：读取原权限后补上 u+x/g+x/o+x（不影响原有读写位）
+ * @returns 实际设置成功的条目数
+ */
+export async function chmodExec(sessionId: string, paths: string[]): Promise<number> {
+  const sftp = await getSftp(sessionId)
+  let done = 0
+  for (const p of paths) {
+    const st = await new Promise<{ mode: number }>((resolve, reject) => {
+      sftp.lstat(p, (err, s) => (err ? reject(err) : resolve(s)))
+    })
+    const mode = (st.mode & 0o7777) | 0o111
+    await new Promise<void>((resolve, reject) => {
+      sftp.chmod(p, mode, err => (err ? reject(err) : resolve()))
+    })
+    done++
+  }
+  return done
+}
+
 export function realpath(sessionId: string, p: string): Promise<string> {
   return getSftp(sessionId).then(
     sftp =>

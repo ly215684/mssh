@@ -442,6 +442,25 @@ export const FilePane = forwardRef<PaneHandle, FilePaneProps>(function FilePane(
     [isRemote, sessionId, refresh, runOp, t],
   )
 
+  const doChmodExec = useCallback(
+    async (names: string[]) => {
+      if (!isRemote || !sessionId || !names.length) return
+      const paths = names.map(n => joinPath(dirRef.current, n))
+      await runOp(t('sftp.opChmodExec'), async () => {
+        let failed = false
+        try {
+          await window.api.sftpChmodExec(sessionId, paths)
+        } catch (e) {
+          failed = true
+          void errorAlert(getGlobalT()('sftp.opFailed'), e)
+        }
+        refresh()
+        if (!failed) message.success(t('sftp.chmodDone'))
+      })
+    },
+    [isRemote, sessionId, refresh, runOp, t],
+  )
+
   // ---------- 右键菜单 ----------
 
   const pickRow = (key: string, f: FileInfo) => {
@@ -472,6 +491,12 @@ export const FilePane = forwardRef<PaneHandle, FilePaneProps>(function FilePane(
         if (items.length) setMoveItems(items)
         break
       }
+      case 'exec': {
+        // 右键命中多选集合时批量添加执行权限，否则只处理当前行
+        const names = selected.has(f.name) && selected.size > 1 ? [...selected] : [f.name]
+        void doChmodExec(names)
+        break
+      }
       case 'delete': {
         // 右键命中多选集合时批量删除，否则只删除当前行
         const names = selected.has(f.name) && selected.size > 1 ? [...selected] : [f.name]
@@ -488,6 +513,7 @@ export const FilePane = forwardRef<PaneHandle, FilePaneProps>(function FilePane(
     ...(!isRemote && !f.isDir ? [{ key: 'open', label: t('ctx.open') }] : []),
     { key: 'rename', label: t('common.rename') },
     ...(isRemote ? [{ key: 'move', label: t('ctx.moveTo') }] : []),
+    ...(isRemote && !f.isDir ? [{ key: 'exec', label: t('ctx.chmodExec') }] : []),
     { key: 'divider', label: '', divider: true },
     { key: 'delete', label: t('common.delete'), danger: true },
   ]

@@ -1,12 +1,11 @@
 import {
   Activity,
+  ArrowUpDown,
   Bot,
   CalendarClock,
   Container,
-  Download,
   Power,
   Server,
-  Upload,
 } from 'lucide-react'
 import type { SessionTab } from '../../../electron/shared/types'
 import { useConnStore } from '../../stores/connStore'
@@ -98,20 +97,12 @@ export function TerminalView({ tab }: { tab: SessionTab }) {
                 <Server size={15} />
               </button>
             </Tooltip>
-            <Tooltip placement="bottom" label={t('term.upload')}>
+            <Tooltip placement="bottom" label={t('term.transfer')}>
               <button
                 onClick={() => openSftp(tab.connectionId)}
                 className="size-7 flex items-center justify-center rounded-md text-dim hover:text-fg hover:bg-hover transition-colors"
               >
-                <Upload size={15} />
-              </button>
-            </Tooltip>
-            <Tooltip placement="bottom" label={t('term.download')}>
-              <button
-                onClick={() => openSftp(tab.connectionId)}
-                className="size-7 flex items-center justify-center rounded-md text-dim hover:text-fg hover:bg-hover transition-colors"
-              >
-                <Download size={15} />
+                <ArrowUpDown size={15} />
               </button>
             </Tooltip>
           </>

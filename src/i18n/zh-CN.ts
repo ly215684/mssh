@@ -91,8 +91,7 @@ export default {
   'quick.hint': '连接不会被保存到连接列表',
 
   // 终端
-  'term.upload': '上传',
-  'term.download': '下载',
+  'term.transfer': '文件传输',
   'term.disconnect': '断开',
   'term.connecting': '正在连接 {target} …',
   'term.connClosed': '连接已断开',

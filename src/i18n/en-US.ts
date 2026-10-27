@@ -91,8 +91,7 @@ export default {
   'quick.hint': 'Quick connections are not saved to the list',
 
   // Terminal
-  'term.upload': 'Upload',
-  'term.download': 'Download',
+  'term.transfer': 'File Transfer',
   'term.disconnect': 'Disconnect',
   'term.connecting': 'Connecting to {target}…',
   'term.connClosed': 'Connection closed',

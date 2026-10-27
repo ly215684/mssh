@@ -35,8 +35,6 @@ const approvals = new Map<string, (approved: boolean) => void>()
 const NO_DATA_TIMEOUT = 120_000
 /** 连通性测试超时（毫秒） */
 const TEST_TIMEOUT = 30_000
-/** 代理模式单次对话最多工具调用轮次 */
-const MAX_AGENT_ROUNDS = 8
 
 const approvalKey = (reqId: string, toolCallId: string) => `${reqId}\u0000${toolCallId}`
 
@@ -426,7 +424,8 @@ async function runAgent(rt: ChatRuntime, payload: AiStartPayload): Promise<void>
 
   const messages = buildAgentMessages(payload.messages, ctx, rt.language)
 
-  for (let round = 0; round < MAX_AGENT_ROUNDS; round++) {
+  // 工具调用轮次不设上限：模型不再返回 tool_calls 或用户中止时结束
+  for (;;) {
     if (rt.controller.signal.aborted) {
       rt.sendDone()
       return
@@ -516,14 +515,6 @@ async function runAgent(rt: ChatRuntime, payload: AiStartPayload): Promise<void>
       }
     }
   }
-
-  // 达到轮次上限：保留已生成内容并提示用户可继续对话
-  rt.sendDelta(
-    rt.language === 'zh-CN'
-      ? '\n\n（已达到单次对话的最大工具调用轮次，可继续提问以处理剩余任务）'
-      : '\n\n(Reached the maximum tool-call rounds for one message. Send another message to continue.)',
-  )
-  rt.sendDone()
 }
 
 /**

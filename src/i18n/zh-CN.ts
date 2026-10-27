@@ -311,6 +311,25 @@ export default {
   'ai.copyCode': '复制代码',
   'ai.copyMsg': '复制回复',
   'ai.providerCustom': '自定义（OpenAI 兼容）',
+  'ai.modeChat': '对话模式',
+  'ai.modeAgent': '代理模式',
+  'ai.needSession': '代理模式需要先连接服务器：当前终端尚未建立 SSH 连接',
+  'ai.agentInputPh': '描述你想在服务器上完成的操作…',
+  'ai.toolRunCommand': '执行命令',
+  'ai.toolReadFile': '读取文件',
+  'ai.toolListDirectory': '列出目录',
+  'ai.toolWriteFile': '写入文件',
+  'ai.toolUnknown': '工具调用',
+  'ai.toolPending': '等待确认',
+  'ai.toolRunning': '执行中…',
+  'ai.toolDone': '已完成',
+  'ai.toolError': '执行失败',
+  'ai.toolDenied': '已拒绝',
+  'ai.toolAllow': '允许执行',
+  'ai.toolDeny': '拒绝',
+  'ai.toolNoOutput': '（无输出）',
+  'ai.toolNoArgs': '（缺少命令参数）',
+  'ai.toolPath': '路径',
 
   // 状态栏
   'status.protocol': 'SSH2',
@@ -433,6 +452,9 @@ export default {
   'settings.x11DisplayDesc':
     '本地 X 服务器的 DISPLAY 地址（主机:显示号，显示号 N 对应 TCP 端口 6000+N，如 127.0.0.1:0 → 6000）；Windows 需运行 VcXsrv/Xming 并勾选 Disable access control，留空默认 :0',
   'settings.ai': 'AI 助手',
+  'settings.aiMode': 'AI 模式',
+  'settings.aiModeDesc':
+    '对话模式仅聊天问答；代理模式允许 AI 通过 MCP 工具操作当前连接的服务器，执行命令或写入文件前需要你确认（默认对话模式）',
   'settings.aiProvider': '服务商',
   'settings.aiProviderDesc':
     '选择主流大模型服务商将自动填充接口地址；选择自定义可接入任意 OpenAI 兼容服务',

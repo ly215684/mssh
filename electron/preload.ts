@@ -125,8 +125,10 @@ const api: RendererApi = {
   localTouch: p => ipcRenderer.invoke('local:touch', p),
   localExtract: p => ipcRenderer.invoke('local:extract', p),
 
-  aiStart: messages => ipcRenderer.invoke('ai:start', messages),
+  aiStart: payload => ipcRenderer.invoke('ai:start', payload),
   aiAbort: reqId => ipcRenderer.invoke('ai:abort', reqId),
+  aiToolReply: (reqId, toolCallId, approved) =>
+    ipcRenderer.invoke('ai:toolReply', reqId, toolCallId, approved),
   aiTest: ai => ipcRenderer.invoke('ai:test', ai),
   onAiDelta: cb => {
     const l = listener<[string, string]>((id, delta) => cb(id, delta))
@@ -142,6 +144,18 @@ const api: RendererApi = {
     const l = listener<[string, string]>((id, msg) => cb(id, msg))
     ipcRenderer.on('ai:error', l)
     return () => ipcRenderer.off('ai:error', l)
+  },
+  onAiTool: cb => {
+    const l = listener<Parameters<typeof cb>>((id, call) => cb(id, call))
+    ipcRenderer.on('ai:tool', l)
+    return () => ipcRenderer.off('ai:tool', l)
+  },
+  onAiToolResult: cb => {
+    const l = listener<Parameters<typeof cb>>((id, toolCallId, status, output) =>
+      cb(id, toolCallId, status, output),
+    )
+    ipcRenderer.on('ai:toolResult', l)
+    return () => ipcRenderer.off('ai:toolResult', l)
   },
 
   updateActive: () => ipcRenderer.invoke('update:active'),

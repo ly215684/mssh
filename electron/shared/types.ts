@@ -84,6 +84,9 @@ export type AiProviderId =
   | 'siliconflow'
   | 'custom'
 
+/** AI 助手交互模式：chat=仅对话；agent=可通过 MCP 工具操作当前服务器 */
+export type AiMode = 'chat' | 'agent'
+
 /** AI 大模型设置（apiKey 由 configStore 加密落盘） */
 export interface AiSettings {
   provider: AiProviderId
@@ -95,12 +98,61 @@ export interface AiSettings {
   model: string
   /** 系统提示词 */
   systemPrompt: string
+  /** 交互模式（默认对话模式） */
+  mode: AiMode
+}
+
+/** 模型返回的工具调用（OpenAI 兼容结构，作为历史消息回传） */
+export interface ChatToolCall {
+  id: string
+  type: 'function'
+  function: { name: string; arguments: string }
 }
 
 /** 对话消息（主/渲染共享，发送给兼容接口的标准结构） */
 export interface ChatMessage {
-  role: 'system' | 'user' | 'assistant'
-  content: string
+  role: 'system' | 'user' | 'assistant' | 'tool'
+  /** assistant 仅调用工具或 tool 结果异常时可能为 null */
+  content: string | null
+  /** assistant 消息中请求调用的工具（代理模式历史） */
+  tool_calls?: ChatToolCall[]
+  /** tool 消息对应的调用 id */
+  tool_call_id?: string
+}
+
+/** 代理模式执行上下文：绑定当前终端所在的 SSH 会话 */
+export interface AiAgentContext {
+  sessionId: string
+  host: string
+  username: string
+  /** 连接名称（展示用） */
+  connectionName?: string
+}
+
+/** 发起一次 AI 请求的载荷 */
+export interface AiStartPayload {
+  messages: ChatMessage[]
+  mode: AiMode
+  /** 代理模式必填：当前终端会话 */
+  context?: AiAgentContext
+}
+
+/** MCP 工具调用状态（渲染端工具卡片展示） */
+export type AiToolStatus = 'pending' | 'running' | 'done' | 'error' | 'denied'
+
+/** 一次 MCP 工具调用（主进程 → 渲染端事件，并按 id 合并到消息） */
+export interface AiToolCall {
+  /** 模型返回的调用 id（tool_call_id） */
+  id: string
+  /** MCP 工具名，如 run_command */
+  name: string
+  /** 解析后的参数 */
+  args: Record<string, unknown>
+  /** 执行前是否必须由用户确认 */
+  needsApproval: boolean
+  status: AiToolStatus
+  /** 执行输出（已截断，用于工具卡片展示） */
+  output?: string
 }
 
 /** AI 连通性测试失败类别（渲染端据此给出本地化排查提示） */
@@ -326,6 +378,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     apiKey: '',
     baseUrl: 'https://api.deepseek.com/v1',
     model: 'deepseek-chat',
+    mode: 'chat',
     systemPrompt:
       '你是一名经验丰富的 Linux 运维与开发专家，内置在 SSH 客户端 mssh 中。' +
       '请简洁、准确地回答问题；涉及命令时优先给出可直接复制执行的代码块，' +

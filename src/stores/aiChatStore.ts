@@ -1,6 +1,12 @@
 import { create } from 'zustand'
-import type { ChatMessage } from '../../electron/shared/types'
+import type {
+  AiAgentContext,
+  AiMode,
+  AiToolCall,
+  ChatMessage,
+} from '../../electron/shared/types'
 import { useAppStore } from './appStore'
+import { getGlobalT } from '../i18n/I18nProvider'
 
 /** 对话中的一条消息（区别于发送给接口的 ChatMessage，多了 UI 状态） */
 export interface AiMessage {
@@ -11,6 +17,8 @@ export interface AiMessage {
   error?: boolean
   /** 助手消息正在流式生成 */
   generating?: boolean
+  /** 代理模式下本轮消息触发的 MCP 工具调用 */
+  tools?: AiToolCall[]
 }
 
 export interface AiChat {
@@ -29,11 +37,13 @@ interface AiChatState {
   deleteChat: (id: string) => void
   setActive: (id: string) => void
   /** 发送一条提问（自动建会话、追加消息、发起流式请求） */
-  send: (content: string) => Promise<void>
+  send: (content: string, context?: AiAgentContext) => Promise<void>
   /** 停止当前会话正在生成的回复 */
   stop: () => void
   /** 基于最后一条提问重新生成回复 */
-  retry: () => void
+  retry: (context?: AiAgentContext) => void
+  /** 代理模式：允许或拒绝某次工具调用 */
+  replyTool: (chatId: string, msgId: string, toolCallId: string, approved: boolean) => void
 }
 
 /** 上下文最多携带的历史消息条数（控制系统提示词之外的 token 量） */
@@ -49,10 +59,18 @@ function load(): { chats: AiChat[]; activeChatId: string | null } {
     if (!raw) return { chats: [], activeChatId: null }
     const parsed = JSON.parse(raw) as { chats?: AiChat[]; activeChatId?: string | null }
     return {
-      // 重启后不可能仍在生成，重置 generating 标志
+      // 重启后不可能仍在生成/等待审批，重置运行时状态
       chats: (parsed.chats ?? []).map(c => ({
         ...c,
-        messages: (c.messages ?? []).map(m => ({ ...m, generating: false })),
+        messages: (c.messages ?? []).map(m => ({
+          ...m,
+          generating: false,
+          tools: m.tools?.map(t =>
+            t.status === 'pending' || t.status === 'running'
+              ? { ...t, status: 'error' as const, output: '' }
+              : t,
+          ),
+        })),
       })),
       activeChatId: parsed.activeChatId ?? null,
     }
@@ -74,14 +92,52 @@ function patchMessage(chatId: string, msgId: string, patch: Partial<AiMessage>) 
   }))
 }
 
-/** 组装发送给模型的消息：系统提示词 + 最近成功的历史 */
-function buildMessages(history: AiMessage[], systemPrompt: string): ChatMessage[] {
+/**
+ * 组装发送给模型的消息：
+ * - 对话模式：系统提示词 + 最近成功的历史（仅文本）
+ * - 代理模式：额外携带工具调用与工具结果，让模型在多轮对话中保留执行上下文
+ */
+function buildMessages(history: AiMessage[], systemPrompt: string, mode: AiMode): ChatMessage[] {
   const recent = history
-    .filter(m => !m.error && m.content.trim())
+    .filter(m => !m.error && (m.content.trim() || m.tools?.length))
     .slice(-MAX_HISTORY)
-    .map(m => ({ role: m.role, content: m.content }))
+  const out: ChatMessage[] = []
   const sys = systemPrompt.trim()
-  return sys ? [{ role: 'system' as const, content: sys }, ...recent] : recent
+  if (sys) out.push({ role: 'system', content: sys })
+
+  for (const m of recent) {
+    if (m.role === 'user') {
+      if (m.content.trim()) out.push({ role: 'user', content: m.content })
+      continue
+    }
+
+    if (mode === 'chat') {
+      if (m.content.trim()) out.push({ role: 'assistant', content: m.content })
+      continue
+    }
+
+    // 只回传已有结论的工具调用（跳过等待审批/执行中的应用重启遗留状态）
+    const completed = (m.tools ?? []).filter(
+      t => t.status === 'done' || t.status === 'error' || t.status === 'denied',
+    )
+    if (completed.length > 0) {
+      out.push({
+        role: 'assistant',
+        content: m.content || null,
+        tool_calls: completed.map(t => ({
+          id: t.id,
+          type: 'function' as const,
+          function: { name: t.name, arguments: JSON.stringify(t.args) },
+        })),
+      })
+      for (const t of completed) {
+        out.push({ role: 'tool', tool_call_id: t.id, content: t.output ?? '' })
+      }
+    } else if (m.content.trim()) {
+      out.push({ role: 'assistant', content: m.content })
+    }
+  }
+  return out
 }
 
 function aiConfigured(): boolean {
@@ -90,10 +146,27 @@ function aiConfigured(): boolean {
 }
 
 /** 发起主进程流式请求并登记 reqId */
-async function launch(chatId: string, msgId: string, history: AiMessage[]) {
-  const { systemPrompt } = useAppStore.getState().settings.ai
+async function launch(
+  chatId: string,
+  msgId: string,
+  history: AiMessage[],
+  context?: AiAgentContext,
+) {
+  const { systemPrompt, mode } = useAppStore.getState().settings.ai
+  if (mode === 'agent' && !context) {
+    patchMessage(chatId, msgId, {
+      generating: false,
+      error: true,
+      content: getGlobalT()('ai.needSession'),
+    })
+    return
+  }
   try {
-    const reqId = await window.api.aiStart(buildMessages(history, systemPrompt))
+    const reqId = await window.api.aiStart({
+      messages: buildMessages(history, systemPrompt, mode),
+      mode,
+      context: mode === 'agent' ? context : undefined,
+    })
     pending.set(reqId, { chatId, msgId })
   } catch (e) {
     patchMessage(chatId, msgId, {
@@ -129,7 +202,7 @@ export const useAiChatStore = create<AiChatState>((set, get) => ({
 
   setActive: id => set({ activeChatId: id }),
 
-  send: async content => {
+  send: async (content, context) => {
     const text = content.trim()
     if (!text) return
     let chatId = get().activeChatId
@@ -149,7 +222,7 @@ export const useAiChatStore = create<AiChatState>((set, get) => ({
       title: c.messages.length === 0 ? text.slice(0, 30) : c.title,
       messages: nextMessages,
     }))
-    await launch(chatId, aiMsgId, nextMessages)
+    await launch(chatId, aiMsgId, nextMessages, context)
   },
 
   stop: () => {
@@ -167,7 +240,7 @@ export const useAiChatStore = create<AiChatState>((set, get) => ({
     }
   },
 
-  retry: () => {
+  retry: context => {
     const chatId = get().activeChatId
     if (!chatId) return
     const chat = get().chats.find(c => c.id === chatId)
@@ -181,9 +254,34 @@ export const useAiChatStore = create<AiChatState>((set, get) => ({
 
     get().stop()
     const aiMsgId = crypto.randomUUID()
-    const nextMessages = [...msgs, { id: aiMsgId, role: 'assistant' as const, content: '', generating: true }]
+    const nextMessages = [
+      ...msgs,
+      { id: aiMsgId, role: 'assistant' as const, content: '', generating: true },
+    ]
     updateChat(chatId, c => ({ ...c, messages: nextMessages }))
-    void launch(chatId, aiMsgId, nextMessages)
+    void launch(chatId, aiMsgId, nextMessages, context)
+  },
+
+  replyTool: (chatId, msgId, toolCallId, approved) => {
+    let reqId: string | null = null
+    for (const [id, p] of pending) {
+      if (p.chatId === chatId && p.msgId === msgId) {
+        reqId = id
+        break
+      }
+    }
+    if (!reqId) return
+
+    const chat = get().chats.find(c => c.id === chatId)
+    const msg = chat?.messages.find(m => m.id === msgId)
+    if (!msg) return
+
+    window.api.aiToolReply(reqId, toolCallId, approved)
+    patchMessage(chatId, msgId, {
+      tools: msg.tools?.map(t =>
+        t.id === toolCallId ? { ...t, status: approved ? 'running' : 'denied' } : t,
+      ),
+    })
   },
 }))
 
@@ -228,16 +326,54 @@ export function initAiListener() {
     }))
   })
 
+  // 工具调用请求：按 id 插入/更新到当前助手消息
+  window.api.onAiTool((reqId, call) => {
+    const p = pending.get(reqId)
+    if (!p) return
+    const chat = useAiChatStore.getState().chats.find(c => c.id === p.chatId)
+    const msg = chat?.messages.find(m => m.id === p.msgId)
+    if (!msg) return
+    const prev = msg.tools ?? []
+    const tools = prev.some(t => t.id === call.id)
+      ? prev.map(t => (t.id === call.id ? { ...t, ...call } : t))
+      : [...prev, call]
+    patchMessage(p.chatId, p.msgId, { tools })
+  })
+
+  // 工具执行结果：更新对应卡片状态与输出
+  window.api.onAiToolResult((reqId, toolCallId, status, output) => {
+    const p = pending.get(reqId)
+    if (!p) return
+    const chat = useAiChatStore.getState().chats.find(c => c.id === p.chatId)
+    const msg = chat?.messages.find(m => m.id === p.msgId)
+    if (!msg) return
+    patchMessage(p.chatId, p.msgId, {
+      tools: msg.tools?.map(t => (t.id === toolCallId ? { ...t, status, output } : t)),
+    })
+  })
+
   const finish = (reqId: string, error?: string) => {
     const p = pending.get(reqId)
     if (!p) return
     pending.delete(reqId)
+    const chat = useAiChatStore.getState().chats.find(c => c.id === p.chatId)
+    const msg = chat?.messages.find(m => m.id === p.msgId)
+    // 结束时仍未完成的工具调用（用户中止 / 连接中断）标记为失败
+    const tools = msg?.tools?.map(t =>
+      t.status === 'pending' || t.status === 'running'
+        ? {
+            ...t,
+            status: (t.status === 'pending' ? 'denied' : 'error') as AiToolCall['status'],
+            output: t.output ?? '',
+          }
+        : t,
+    )
     patchMessage(
       p.chatId,
       p.msgId,
       error
-        ? { generating: false, error: true, content: error }
-        : { generating: false },
+        ? { generating: false, error: true, content: error, tools }
+        : { generating: false, tools },
     )
   }
 

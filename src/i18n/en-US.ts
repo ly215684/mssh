@@ -318,6 +318,25 @@ export default {
   'ai.copyCode': 'Copy code',
   'ai.copyMsg': 'Copy reply',
   'ai.providerCustom': 'Custom (OpenAI-compatible)',
+  'ai.modeChat': 'Chat',
+  'ai.modeAgent': 'Agent',
+  'ai.needSession': 'Agent mode requires an active SSH session. Connect to a server in the terminal first.',
+  'ai.agentInputPh': 'Describe the operation you want to perform on the server…',
+  'ai.toolRunCommand': 'Run command',
+  'ai.toolReadFile': 'Read file',
+  'ai.toolListDirectory': 'List directory',
+  'ai.toolWriteFile': 'Write file',
+  'ai.toolUnknown': 'Tool call',
+  'ai.toolPending': 'Awaiting approval',
+  'ai.toolRunning': 'Running…',
+  'ai.toolDone': 'Completed',
+  'ai.toolError': 'Failed',
+  'ai.toolDenied': 'Denied',
+  'ai.toolAllow': 'Allow',
+  'ai.toolDeny': 'Deny',
+  'ai.toolNoOutput': '(no output)',
+  'ai.toolNoArgs': '(missing command argument)',
+  'ai.toolPath': 'Path',
 
   // Status bar
   'status.protocol': 'SSH2',
@@ -442,6 +461,9 @@ export default {
   'settings.x11DisplayDesc':
     'DISPLAY address of the local X server (host:display; display N maps to TCP port 6000+N, e.g. 127.0.0.1:0 → 6000). On Windows run VcXsrv/Xming with "Disable access control" checked; empty defaults to :0',
   'settings.ai': 'AI Assistant',
+  'settings.aiMode': 'AI mode',
+  'settings.aiModeDesc':
+    'Chat mode only answers questions. Agent mode lets the AI operate the connected server through MCP tools; commands and file writes require your approval (default: Chat).',
   'settings.aiProvider': 'Provider',
   'settings.aiProviderDesc':
     'Pick a mainstream provider to auto-fill the endpoint, or choose custom for any OpenAI-compatible service',

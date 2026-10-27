@@ -1,24 +1,45 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   AlertCircle,
+  Ban,
   Bot,
+  CheckCircle2,
   ChevronDown,
+  Clock,
   Copy,
+  FileText,
+  FolderOpen,
   MessageSquarePlus,
+  PenLine,
   Plus,
   RotateCcw,
   Send,
   Settings as SettingsIcon,
   Square,
+  Terminal,
   Trash2,
   X,
+  XCircle,
+  type LucideIcon,
 } from 'lucide-react'
 import { useAppStore } from '../../stores/appStore'
 import { useAiChatStore, type AiMessage } from '../../stores/aiChatStore'
+import { useConnStore } from '../../stores/connStore'
+import { useSessionStore } from '../../stores/sessionStore'
 import { useUiStore } from '../../stores/uiStore'
 import { useT } from '../../i18n/I18nProvider'
+import type { DictKey } from '../../i18n/zh-CN'
+import type { AiAgentContext, AiToolCall } from '../../../electron/shared/types'
 import { Markdown } from './Markdown'
 import { Button, Spinner, Tooltip, confirm, message } from '../../components/ui'
+
+/** MCP 工具展示元信息（标题与图标） */
+const TOOL_META: Record<string, { label: DictKey; icon: LucideIcon }> = {
+  run_command: { label: 'ai.toolRunCommand', icon: Terminal },
+  read_file: { label: 'ai.toolReadFile', icon: FileText },
+  list_directory: { label: 'ai.toolListDirectory', icon: FolderOpen },
+  write_file: { label: 'ai.toolWriteFile', icon: PenLine },
+}
 
 /** 空会话时展示的运维场景快捷提问（SSH 客户端场景） */
 function suggestions(t: ReturnType<typeof useT>): string[] {
@@ -32,6 +53,13 @@ export function AiFloatingPanel() {
   const setPanelOpen = useUiStore(s => s.setAiPanelOpen)
   const setSettingsOpen = useUiStore(s => s.setSettingsOpen)
   const ai = useAppStore(s => s.settings.ai)
+  const activeTab = useSessionStore(s => s.tabs.find(t => t.id === s.activeTabId))
+  const connSession = useSessionStore(s =>
+    activeTab ? s.connSessions[activeTab.connectionId] : undefined,
+  )
+  const conn = useConnStore(s =>
+    activeTab ? s.connections.find(c => c.id === activeTab.connectionId) : undefined,
+  )
 
   const chats = useAiChatStore(s => s.chats)
   const activeChatId = useAiChatStore(s => s.activeChatId)
@@ -51,6 +79,18 @@ export function AiFloatingPanel() {
   const activeChat = chats.find(c => c.id === activeChatId) ?? null
   const generating = activeChat?.messages.some(m => m.generating) ?? false
   const configured = Boolean(ai.apiKey.trim() && ai.baseUrl.trim() && ai.model.trim())
+  const agent = ai.mode === 'agent'
+  // 代理模式只能操作当前终端所在的服务器；未连接时不允许发送
+  const agentContext: AiAgentContext | undefined =
+    agent && conn && connSession?.status === 'connected' && connSession.sshSessionId
+      ? {
+          sessionId: connSession.sshSessionId,
+          host: conn.host,
+          username: conn.username,
+          connectionName: conn.name,
+        }
+      : undefined
+  const agentBlocked = agent && !agentContext
 
   // 流式增量 / generating 变化时，若用户停留在底部则自动滚到底
   const lastLen = activeChat?.messages[activeChat.messages.length - 1]?.content.length ?? 0
@@ -81,9 +121,13 @@ export function AiFloatingPanel() {
   async function doSend(text?: string) {
     const q = (text ?? input).trim()
     if (!q || generating) return
+    if (agentBlocked) {
+      message.warning(t('ai.needSession'))
+      return
+    }
     setInput('')
     if (taRef.current) taRef.current.style.height = 'auto'
-    await send(q)
+    await send(q, agentContext)
   }
 
   return (
@@ -100,6 +144,15 @@ export function AiFloatingPanel() {
           </span>
           <ChevronDown size={13} className="shrink-0 opacity-70" />
         </button>
+        <span
+          className={`shrink-0 h-5 px-1.5 flex items-center rounded text-[10px] font-medium ${
+            agent
+              ? 'bg-accent-dim text-accent border border-accent/30'
+              : 'bg-input text-faint border border-bd'
+          }`}
+        >
+          {t(agent ? 'ai.modeAgent' : 'ai.modeChat')}
+        </span>
         <div className="flex-1" />
         <Tooltip placement="bottom" label={t('ai.newChat')}>
           <button
@@ -195,9 +248,10 @@ export function AiFloatingPanel() {
             {activeChat.messages.map((m, idx) => (
               <MessageBubble
                 key={m.id}
+                chatId={activeChat.id}
                 m={m}
                 canRegenerate={idx === activeChat.messages.length - 1}
-                onRetry={retry}
+                onRetry={() => retry(agentContext)}
               />
             ))}
           </div>
@@ -206,6 +260,11 @@ export function AiFloatingPanel() {
 
       {/* 输入区 */}
       <div className="shrink-0 border-t border-bd bg-panel/60 px-3 py-2.5">
+        {agentBlocked && configured && (
+          <div className="mb-2 rounded-md border border-warning/40 bg-warning/10 px-2.5 py-1.5 text-[11px] leading-relaxed text-warning">
+            {t('ai.needSession')}
+          </div>
+        )}
         <div className="flex items-end gap-2 rounded-lg border border-bd bg-input p-2 transition-colors focus-within:border-accent">
           <textarea
             ref={taRef}
@@ -222,7 +281,13 @@ export function AiFloatingPanel() {
                 void doSend()
               }
             }}
-            placeholder={configured ? t('ai.inputPh') : t('ai.inputDisabledPh')}
+            placeholder={
+              !configured
+                ? t('ai.inputDisabledPh')
+                : agent
+                  ? t('ai.agentInputPh')
+                  : t('ai.inputPh')
+            }
             className="flex-1 resize-none bg-transparent px-1 py-1 text-[13px] leading-relaxed text-fg placeholder:text-faint outline-none max-h-40 disabled:opacity-50"
           />
           {generating ? (
@@ -234,7 +299,7 @@ export function AiFloatingPanel() {
               variant="primary"
               size="sm"
               className="px-2"
-              disabled={!configured || !input.trim()}
+              disabled={!configured || !input.trim() || agentBlocked}
               onClick={() => void doSend()}
             >
               <Send size={13} />
@@ -295,12 +360,14 @@ function Welcome({ onPick }: { onPick: (q: string) => void }) {
   )
 }
 
-/** 单条消息（用户气泡 / 助手 Markdown） */
+/** 单条消息（用户气泡 / 助手 Markdown + 工具调用卡片） */
 function MessageBubble({
+  chatId,
   m,
   canRegenerate,
   onRetry,
 }: {
+  chatId: string
   m: AiMessage
   canRegenerate: boolean
   onRetry: () => void
@@ -338,15 +405,23 @@ function MessageBubble({
               {t('ai.retry')}
             </button>
           </div>
-        ) : m.generating && !m.content ? (
-          <div className="flex items-center gap-2 text-dim text-xs py-1.5">
-            <Spinner size={14} />
-            {t('ai.thinking')}
-          </div>
         ) : (
           <>
-            <Markdown content={m.content} />
-            {!m.generating && (
+            {m.generating && !m.content && (
+              <div className="flex items-center gap-2 text-dim text-xs py-1.5">
+                <Spinner size={14} />
+                {t('ai.thinking')}
+              </div>
+            )}
+            {m.content && <Markdown content={m.content} />}
+            {m.tools && m.tools.length > 0 && (
+              <div className="space-y-2 mt-2">
+                {m.tools.map(call => (
+                  <ToolCard key={call.id} chatId={chatId} msgId={m.id} call={call} />
+                ))}
+              </div>
+            )}
+            {!m.generating && (m.content || (m.tools?.length ?? 0) > 0) && (
               <div className="flex items-center gap-1 mt-1.5">
                 <IconAction
                   title={t('ai.copyMsg')}
@@ -366,6 +441,130 @@ function MessageBubble({
             )}
           </>
         )}
+      </div>
+    </div>
+  )
+}
+
+/** 工具调用状态文案与图标 */
+function ToolStatus({ call }: { call: AiToolCall }) {
+  const t = useT()
+  if (call.status === 'pending') {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10.5px] text-warning">
+        <Clock size={11} />
+        {t('ai.toolPending')}
+      </span>
+    )
+  }
+  if (call.status === 'running') {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10.5px] text-accent">
+        <Spinner size={11} />
+        {t('ai.toolRunning')}
+      </span>
+    )
+  }
+  if (call.status === 'done') {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10.5px] text-accent">
+        <CheckCircle2 size={11} />
+        {t('ai.toolDone')}
+      </span>
+    )
+  }
+  if (call.status === 'error') {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10.5px] text-danger">
+        <XCircle size={11} />
+        {t('ai.toolError')}
+      </span>
+    )
+  }
+  return (
+    <span className="inline-flex items-center gap-1 text-[10.5px] text-faint">
+      <Ban size={11} />
+      {t('ai.toolDenied')}
+    </span>
+  )
+}
+
+/** 代理模式工具调用卡片：参数预览 + 用户确认 + 执行结果 */
+function ToolCard({
+  chatId,
+  msgId,
+  call,
+}: {
+  chatId: string
+  msgId: string
+  call: AiToolCall
+}) {
+  const t = useT()
+  const replyTool = useAiChatStore(s => s.replyTool)
+  const meta = TOOL_META[call.name]
+  const Icon = meta?.icon ?? Terminal
+  const command = typeof call.args.command === 'string' ? call.args.command : ''
+  const path = typeof call.args.path === 'string' ? call.args.path : ''
+  const content = typeof call.args.content === 'string' ? call.args.content : ''
+  const awaiting = call.status === 'pending' && call.needsApproval
+
+  return (
+    <div className="rounded-lg border border-bd bg-panel/70 overflow-hidden">
+      <div className="flex items-center gap-1.5 h-8 px-2.5 border-b border-bd/60 bg-input/50">
+        <Icon size={12} className="shrink-0 text-accent" />
+        <span className="text-[12px] font-medium text-fg shrink-0">
+          {meta ? t(meta.label) : t('ai.toolUnknown')}
+        </span>
+        <span className="text-[10px] text-faint mono truncate">{call.name}</span>
+        <div className="flex-1" />
+        <ToolStatus call={call} />
+      </div>
+
+      <div className="px-2.5 py-2 space-y-1.5">
+        {call.name === 'run_command' ? (
+          <pre className="max-h-32 overflow-auto rounded border border-bd bg-term-bg px-2 py-1.5 text-[11.5px] leading-relaxed text-term-fg whitespace-pre-wrap break-words selectable">
+            <span className="text-accent select-none">$ </span>
+            {command || t('ai.toolNoArgs')}
+          </pre>
+        ) : (
+          <div className="text-[11.5px] text-dim break-all selectable">
+            <span className="text-faint">{t('ai.toolPath')}: </span>
+            <span className="mono text-fg">{path || '.'}</span>
+          </div>
+        )}
+
+        {call.name === 'write_file' && content && (
+          <pre className="max-h-28 overflow-auto rounded border border-bd bg-input px-2 py-1.5 text-[11px] leading-relaxed text-dim whitespace-pre-wrap break-words selectable">
+            {content.length > 2000 ? `${content.slice(0, 2000)}\n…` : content}
+          </pre>
+        )}
+
+        {awaiting && (
+          <div className="flex items-center gap-2 pt-0.5">
+            <Button
+              variant="primary"
+              size="sm"
+              icon={<CheckCircle2 size={12} />}
+              onClick={() => replyTool(chatId, msgId, call.id, true)}
+            >
+              {t('ai.toolAllow')}
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={<Ban size={12} />}
+              onClick={() => replyTool(chatId, msgId, call.id, false)}
+            >
+              {t('ai.toolDeny')}
+            </Button>
+          </div>
+        )}
+
+        {call.status === 'done' || call.status === 'error' || call.status === 'denied' ? (
+          <pre className="max-h-44 overflow-auto rounded border border-bd bg-input px-2 py-1.5 text-[11px] leading-relaxed text-dim whitespace-pre-wrap break-words selectable">
+            {call.output?.trim() || t('ai.toolNoOutput')}
+          </pre>
+        ) : null}
       </div>
     </div>
   )

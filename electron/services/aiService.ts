@@ -1,7 +1,18 @@
 import { randomUUID } from 'node:crypto'
 import type { Readable as NodeReadable } from 'node:stream'
 import { net, type IncomingMessage, type WebContents } from 'electron'
-import type { AiErrorCode, AiSettings, AiTestResult, ChatMessage } from '../shared/types'
+import type {
+  AiErrorCode,
+  AiSettings,
+  AiStartPayload,
+  AiTestResult,
+  AiToolCall,
+  ChatMessage,
+  ChatToolCall,
+  Language,
+} from '../shared/types'
+import { getSession } from './sshService'
+import { McpClient, McpServer, toolNeedsApproval, type McpToolInfo } from './mcpService'
 
 /**
  * Electron 类型声明里 IncomingMessage 只继承 EventEmitter，
@@ -17,10 +28,17 @@ function asStream(resp: IncomingMessage): ResponseStream {
 const controllers = new Map<string, AbortController>()
 const watchdogs = new Map<string, ReturnType<typeof setTimeout>>()
 
+/** 待用户确认的工具调用：key(reqId, toolCallId) → 决议函数 */
+const approvals = new Map<string, (approved: boolean) => void>()
+
 /** 无任何增量的最长时间（毫秒），超时中止 */
 const NO_DATA_TIMEOUT = 120_000
 /** 连通性测试超时（毫秒） */
 const TEST_TIMEOUT = 30_000
+/** 代理模式单次对话最多工具调用轮次 */
+const MAX_AGENT_ROUNDS = 8
+
+const approvalKey = (reqId: string, toolCallId: string) => `${reqId}\u0000${toolCallId}`
 
 /** 校验并规范化 AI 配置，缺字段直接抛错 */
 function normalizeAi(ai: AiSettings) {
@@ -131,6 +149,15 @@ function classifyNetError(err: unknown, signal: AbortSignal): AiNetError {
 /** 主动中止一次对话 */
 export function abortChat(reqId: string) {
   controllers.get(reqId)?.abort()
+  // 中止时把仍在等待用户确认的工具调用一律按拒绝处理，避免请求悬挂
+  for (const [k, resolve] of approvals) {
+    if (k.startsWith(`${reqId}\u0000`)) resolve(false)
+  }
+}
+
+/** 用户对某个工具调用做出允许/拒绝决定 */
+export function replyToolCall(reqId: string, toolCallId: string, approved: boolean) {
+  approvals.get(approvalKey(reqId, toolCallId))?.(approved)
 }
 
 function clearWatchdog(reqId: string) {
@@ -139,23 +166,386 @@ function clearWatchdog(reqId: string) {
   watchdogs.delete(reqId)
 }
 
+/** 等待用户确认，signal 中止时按拒绝处理 */
+function waitForApproval(
+  reqId: string,
+  toolCallId: string,
+  signal: AbortSignal,
+): Promise<boolean> {
+  return new Promise(resolve => {
+    const key = approvalKey(reqId, toolCallId)
+    let settled = false
+    const finish = (approved: boolean) => {
+      if (settled) return
+      settled = true
+      approvals.delete(key)
+      signal.removeEventListener('abort', onAbort)
+      resolve(approved)
+    }
+    const onAbort = () => finish(false)
+    approvals.set(key, finish)
+    if (signal.aborted) {
+      finish(false)
+      return
+    }
+    signal.addEventListener('abort', onAbort, { once: true })
+  })
+}
+
+/** OpenAI 兼容的工具声明 */
+interface OpenAiTool {
+  type: 'function'
+  function: { name: string; description: string; parameters: unknown }
+}
+
+interface RoundResult {
+  /** 本轮助手文本 */
+  content: string
+  /** 本轮请求调用的工具 */
+  toolCalls: ChatToolCall[]
+}
+
+interface RoundOptions {
+  base: string
+  key: string
+  model: string
+  messages: ChatMessage[]
+  tools?: OpenAiTool[]
+  signal: AbortSignal
+  onDelta: (text: string) => void
+  onActivity: () => void
+}
+
+/** 发起一轮流式请求，返回文本与工具调用（SSE 增量实时回调） */
+async function streamRound(opts: RoundOptions): Promise<RoundResult> {
+  const resp = await httpRequest(
+    `${opts.base}/chat/completions`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${opts.key}`,
+      },
+      body: JSON.stringify({
+        model: opts.model,
+        messages: opts.messages,
+        stream: true,
+        temperature: 0.7,
+        ...(opts.tools?.length ? { tools: opts.tools, tool_choice: 'auto' } : {}),
+      }),
+    },
+    opts.signal,
+  )
+
+  if (resp.statusCode < 200 || resp.statusCode >= 300) {
+    const text = await readBody(resp.body).catch(() => '')
+    throw new Error(buildErrorDetail(resp.statusCode, resp.statusText, text))
+  }
+
+  opts.onActivity()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let content = ''
+  /** 按 index 累积流式 tool_calls 分片 */
+  const acc = new Map<number, { id: string; name: string; args: string }>()
+
+  // IncomingMessage 为 Node Readable；abort 时 destroy，循环正常结束（按 done 收尾）
+  for await (const chunk of resp.body) {
+    opts.onActivity()
+    buffer += decoder.decode(chunk, { stream: true })
+
+    // SSE 以空行分隔事件；按行解析 data: 前缀，最后一段可能不完整，留到下次
+    const lines = buffer.split('\n')
+    buffer = lines.pop() ?? ''
+    for (const rawLine of lines) {
+      const line = rawLine.trim()
+      if (!line.startsWith('data:')) continue
+      const data = line.slice(5).trim()
+      if (!data || data === '[DONE]') continue
+      try {
+        const json = JSON.parse(data) as {
+          choices?: {
+            delta?: {
+              content?: string
+              tool_calls?: {
+                index?: number
+                id?: string
+                function?: { name?: string; arguments?: string }
+              }[]
+            }
+          }[]
+        }
+        const delta = json.choices?.[0]?.delta
+        if (delta?.content) {
+          content += delta.content
+          opts.onDelta(delta.content)
+        }
+        for (const tc of delta?.tool_calls ?? []) {
+          const idx = tc.index ?? 0
+          const cur = acc.get(idx) ?? { id: '', name: '', args: '' }
+          if (tc.id) cur.id = tc.id
+          if (tc.function?.name) cur.name += tc.function.name
+          if (tc.function?.arguments) cur.args += tc.function.arguments
+          acc.set(idx, cur)
+        }
+      } catch {
+        // 忽略心跳 / 注释行 / 非 JSON 分片
+      }
+    }
+  }
+
+  const toolCalls: ChatToolCall[] = [...acc.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .filter(([, c]) => c.name)
+    .map(([, c]) => ({
+      id: c.id || `call_${randomUUID()}`,
+      type: 'function' as const,
+      function: { name: c.name, arguments: c.args || '{}' },
+    }))
+
+  return { content, toolCalls }
+}
+
+/** 代理模式系统提示词（按界面语言生成） */
+function agentInstructions(payloadCtx: NonNullable<AiStartPayload['context']>, lang: Language): string {
+  const target = `${payloadCtx.username}@${payloadCtx.host}${
+    payloadCtx.connectionName ? `（${payloadCtx.connectionName}）` : ''
+  }`
+  if (lang === 'en-US') {
+    return [
+      'You are in Agent Mode and can operate the server of the current SSH session directly.',
+      `Current session: ${target}.`,
+      'You have MCP tools: run_command, read_file, list_directory, write_file.',
+      'Rules:',
+      '1. Call tools when you need server information or need to perform a task; never fabricate results.',
+      '2. run_command and write_file require explicit user approval before execution. Call one tool at a time and wait for its result before deciding the next step.',
+      '3. Prefer read-only commands. Do not run destructive commands (rm -rf /, mkfs, dd, shutdown, etc.) unless the user explicitly asks and you have explained the risk.',
+      '4. Commands must be non-interactive (use -y/--no-pager where needed); avoid full-screen programs such as vim/top and avoid long-blocking commands.',
+      '5. When finished, summarize concisely in the user language; do not paste large raw outputs.',
+    ].join('\n')
+  }
+  return [
+    '你现在处于代理模式，可以直接操作当前 SSH 会话所在的服务器。',
+    `当前会话：${target}。`,
+    '你可以使用 MCP 工具：run_command、read_file、list_directory、write_file。',
+    '规则：',
+    '1. 需要服务器信息或要执行任务时调用工具，不要臆造结果。',
+    '2. run_command 与 write_file 需要用户确认后才会真正执行；一次只调用一个工具，等待结果后再决定下一步。',
+    '3. 优先使用只读命令；严禁执行 rm -rf /、mkfs、dd、shutdown 等破坏性操作，除非用户明确要求并已说明风险。',
+    '4. 命令必须是非交互式的（必要时加 -y/--no-pager），避免 vim/top 等全屏程序，避免长时间阻塞。',
+    '5. 完成后用与用户相同的语言简洁总结，不要整段粘贴原始输出。',
+  ].join('\n')
+}
+
+/** 把代理模式指令并入系统提示词 */
+function buildAgentMessages(
+  messages: ChatMessage[],
+  ctx: NonNullable<AiStartPayload['context']>,
+  lang: Language,
+): ChatMessage[] {
+  const instructions = agentInstructions(ctx, lang)
+  const copy = [...messages]
+  const idx = copy.findIndex(m => m.role === 'system')
+  if (idx >= 0) {
+    const cur = copy[idx].content ?? ''
+    copy[idx] = { role: 'system', content: cur ? `${cur}\n\n${instructions}` : instructions }
+  } else {
+    copy.unshift({ role: 'system', content: instructions })
+  }
+  return copy
+}
+
+/** MCP 工具定义转换为 OpenAI tools 声明 */
+function toOpenAiTools(tools: McpToolInfo[]): OpenAiTool[] {
+  return tools.map(t => ({
+    type: 'function' as const,
+    function: { name: t.name, description: t.description, parameters: t.inputSchema },
+  }))
+}
+
+/** 解析模型给出的工具参数 JSON */
+function parseToolArgs(raw: string): { args: Record<string, unknown>; error?: string } {
+  if (!raw.trim()) return { args: {} }
+  try {
+    const v = JSON.parse(raw) as unknown
+    if (v && typeof v === 'object' && !Array.isArray(v)) {
+      return { args: v as Record<string, unknown> }
+    }
+    return { args: {}, error: '工具参数必须是 JSON 对象' }
+  } catch (e) {
+    return {
+      args: {},
+      error: `工具参数解析失败：${e instanceof Error ? e.message : String(e)}`,
+    }
+  }
+}
+
+interface ChatRuntime {
+  reqId: string
+  wc: WebContents
+  controller: AbortController
+  base: string
+  key: string
+  model: string
+  language: Language
+  sendDelta: (text: string) => void
+  sendDone: () => void
+  sendTool: (call: AiToolCall) => void
+  sendToolResult: (toolCallId: string, status: AiToolCall['status'], output: string) => void
+  armWatchdog: () => void
+}
+
+/** 对话模式：单轮流式回答 */
+async function runChat(rt: ChatRuntime, payload: AiStartPayload): Promise<void> {
+  await streamRound({
+    base: rt.base,
+    key: rt.key,
+    model: rt.model,
+    messages: payload.messages,
+    signal: rt.controller.signal,
+    onDelta: rt.sendDelta,
+    onActivity: rt.armWatchdog,
+  })
+  clearWatchdog(rt.reqId)
+  rt.sendDone()
+}
+
+/** 代理模式：流式回答 + MCP 工具调用循环（写操作等待用户确认） */
+async function runAgent(rt: ChatRuntime, payload: AiStartPayload): Promise<void> {
+  const ctx = payload.context
+  const noSession =
+    rt.language === 'zh-CN'
+      ? '当前终端未连接到服务器，无法使用代理模式。请先建立 SSH 连接。'
+      : 'No active SSH session. Connect to a server before using agent mode.'
+  if (!ctx || !getSession(ctx.sessionId)) throw new Error(noSession)
+
+  // 每个请求独立创建 MCP 服务与客户端（工具绑定当前会话）
+  const client = new McpClient(new McpServer({ sessionId: ctx.sessionId }))
+  await client.initialize()
+  const tools = toOpenAiTools(await client.listTools())
+
+  const messages = buildAgentMessages(payload.messages, ctx, rt.language)
+
+  for (let round = 0; round < MAX_AGENT_ROUNDS; round++) {
+    if (rt.controller.signal.aborted) {
+      rt.sendDone()
+      return
+    }
+
+    const result = await streamRound({
+      base: rt.base,
+      key: rt.key,
+      model: rt.model,
+      messages,
+      tools,
+      signal: rt.controller.signal,
+      onDelta: rt.sendDelta,
+      onActivity: rt.armWatchdog,
+    })
+    // 一轮结束即清理看门狗：等待用户确认期间不应触发无数据超时
+    clearWatchdog(rt.reqId)
+
+    if (rt.controller.signal.aborted) {
+      rt.sendDone()
+      return
+    }
+    if (result.toolCalls.length === 0) {
+      rt.sendDone()
+      return
+    }
+
+    messages.push({
+      role: 'assistant',
+      content: result.content || null,
+      tool_calls: result.toolCalls,
+    })
+
+    for (const call of result.toolCalls) {
+      if (rt.controller.signal.aborted) {
+        rt.sendDone()
+        return
+      }
+
+      const name = call.function.name
+      const parsed = parseToolArgs(call.function.arguments)
+      const needsApproval = toolNeedsApproval(name)
+      const toolCall: AiToolCall = {
+        id: call.id,
+        name,
+        args: parsed.args,
+        needsApproval,
+        status: needsApproval ? 'pending' : 'running',
+      }
+      rt.sendTool(toolCall)
+
+      if (needsApproval) {
+        const approved = await waitForApproval(rt.reqId, call.id, rt.controller.signal)
+        if (!approved) {
+          const denied =
+            rt.language === 'zh-CN' ? '用户拒绝执行该操作。' : 'The user denied this operation.'
+          rt.sendToolResult(call.id, 'denied', denied)
+          messages.push({
+            role: 'tool',
+            tool_call_id: call.id,
+            content: 'The user denied this operation.',
+          })
+          continue
+        }
+        rt.sendTool({ ...toolCall, status: 'running' })
+      }
+
+      if (parsed.error) {
+        rt.sendToolResult(call.id, 'error', parsed.error)
+        messages.push({ role: 'tool', tool_call_id: call.id, content: parsed.error })
+        continue
+      }
+
+      try {
+        const r = await client.callTool(name, parsed.args)
+        rt.sendToolResult(call.id, r.isError ? 'error' : 'done', r.text)
+        messages.push({ role: 'tool', tool_call_id: call.id, content: r.text })
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        rt.sendToolResult(call.id, 'error', msg)
+        messages.push({ role: 'tool', tool_call_id: call.id, content: msg })
+      }
+
+      if (rt.controller.signal.aborted) {
+        rt.sendDone()
+        return
+      }
+    }
+  }
+
+  // 达到轮次上限：保留已生成内容并提示用户可继续对话
+  rt.sendDelta(
+    rt.language === 'zh-CN'
+      ? '\n\n（已达到单次对话的最大工具调用轮次，可继续提问以处理剩余任务）'
+      : '\n\n(Reached the maximum tool-call rounds for one message. Send another message to continue.)',
+  )
+  rt.sendDone()
+}
+
 /**
  * 发起 OpenAI 兼容的流式对话。
  * 增量通过 webContents 事件推送：
  *   ai:delta (reqId, text) / ai:done (reqId) / ai:error (reqId, message)
+ * 代理模式额外推送：
+ *   ai:tool (reqId, AiToolCall) / ai:toolResult (reqId, toolCallId, status, output)
  * 主动 abort 导致的结束也发 ai:done，渲染端按 reqId 幂等收尾。
  */
 export async function streamChat(
   wc: WebContents,
   reqId: string,
-  messages: ChatMessage[],
+  payload: AiStartPayload,
   ai: AiSettings,
+  language: Language,
 ): Promise<void> {
   const controller = new AbortController()
   controllers.set(reqId, controller)
 
-  const send = (channel: 'ai:delta' | 'ai:done' | 'ai:error', payload?: string) => {
-    if (!wc.isDestroyed()) wc.send(channel, reqId, payload)
+  const send = (channel: 'ai:delta' | 'ai:done' | 'ai:error', data?: string) => {
+    if (!wc.isDestroyed()) wc.send(channel, reqId, data)
   }
 
   const armWatchdog = () => {
@@ -166,57 +556,29 @@ export async function streamChat(
 
   try {
     const { key, base, model } = normalizeAi(ai)
-
-    const resp = await httpRequest(
-      `${base}/chat/completions`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${key}`,
-        },
-        body: JSON.stringify({ model, messages, stream: true, temperature: 0.7 }),
+    const rt: ChatRuntime = {
+      reqId,
+      wc,
+      controller,
+      base,
+      key,
+      model,
+      language,
+      sendDelta: text => send('ai:delta', text),
+      sendDone: () => send('ai:done'),
+      sendTool: call => {
+        if (!wc.isDestroyed()) wc.send('ai:tool', reqId, call)
       },
-      controller.signal,
-    )
-
-    if (resp.statusCode < 200 || resp.statusCode >= 300) {
-      const text = await readBody(resp.body).catch(() => '')
-      throw new Error(buildErrorDetail(resp.statusCode, resp.statusText, text))
+      sendToolResult: (toolCallId, status, output) => {
+        if (!wc.isDestroyed()) wc.send('ai:toolResult', reqId, toolCallId, status, output)
+      },
+      armWatchdog,
     }
 
-    armWatchdog()
-    const decoder = new TextDecoder()
-    let buffer = ''
-
-    // IncomingMessage 为 Node Readable；abort 时 destroy，循环正常结束（按 done 收尾）
-    for await (const chunk of resp.body) {
-      armWatchdog()
-      buffer += decoder.decode(chunk, { stream: true })
-
-      // SSE 以空行分隔事件；按行解析 data: 前缀，最后一段可能不完整，留到下次
-      const lines = buffer.split('\n')
-      buffer = lines.pop() ?? ''
-      for (const rawLine of lines) {
-        const line = rawLine.trim()
-        if (!line.startsWith('data:')) continue
-        const data = line.slice(5).trim()
-        if (!data || data === '[DONE]') continue
-        try {
-          const json = JSON.parse(data) as {
-            choices?: { delta?: { content?: string } }[]
-          }
-          const delta = json.choices?.[0]?.delta?.content
-          if (delta) send('ai:delta', delta)
-        } catch {
-          // 忽略心跳 / 注释行 / 非 JSON 分片
-        }
-      }
-    }
-
-    // 读取中途网络错误会以流 error 抛出进入 catch；看门狗/主动中止 destroy 流后循环正常结束
-    send('ai:done')
+    if (payload.mode === 'agent') await runAgent(rt, payload)
+    else await runChat(rt, payload)
   } catch (e) {
+    clearWatchdog(reqId)
     // 用户主动中止 / 看门狗超时中止：按正常结束处理（保留已生成内容）
     if (controller.signal.aborted) {
       send('ai:done')
@@ -226,6 +588,10 @@ export async function streamChat(
   } finally {
     clearWatchdog(reqId)
     controllers.delete(reqId)
+    // 兜底清理本请求遗留的审批等待
+    for (const [k, resolve] of approvals) {
+      if (k.startsWith(`${reqId}\u0000`)) resolve(false)
+    }
   }
 }
 

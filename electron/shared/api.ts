@@ -1,9 +1,11 @@
 import type {
   AiSettings,
+  AiStartPayload,
   AiTestResult,
+  AiToolCall,
+  AiToolStatus,
   AllConfig,
   AppSettings,
-  ChatMessage,
   ConnGroup,
   Connection,
   ExecResult,
@@ -145,9 +147,11 @@ export interface RendererApi {
 
   // ---- AI 对话（OpenAI 兼容接口，主进程代理流式请求，避免 CORS 并保护 Key） ----
   /** 发起流式对话，返回请求 id；增量经 onAiDelta/onAiDone/onAiError 推送 */
-  aiStart: (messages: ChatMessage[]) => Promise<string>
+  aiStart: (payload: AiStartPayload) => Promise<string>
   /** 中止进行中的对话 */
   aiAbort: (reqId: string) => void
+  /** 代理模式：对工具调用做出允许/拒绝决定 */
+  aiToolReply: (reqId: string, toolCallId: string, approved: boolean) => void
   /** 用当前配置做连通性测试（非流式最小请求），成功带回一句模型回复 */
   aiTest: (ai: AiSettings) => Promise<AiTestResult>
   /** 模型输出增量订阅，返回取消订阅函数 */
@@ -156,6 +160,12 @@ export interface RendererApi {
   onAiDone: (cb: (reqId: string) => void) => () => void
   /** 对话失败订阅，返回取消订阅函数 */
   onAiError: (cb: (reqId: string, message: string) => void) => () => void
+  /** 代理模式：模型请求调用工具（等待用户确认），返回取消订阅函数 */
+  onAiTool: (cb: (reqId: string, call: AiToolCall) => void) => () => void
+  /** 代理模式：工具调用结果（按工具调用 id 更新卡片），返回取消订阅函数 */
+  onAiToolResult: (
+    cb: (reqId: string, toolCallId: string, status: AiToolStatus, output: string) => void,
+  ) => () => void
 
   // ---- 自动更新 ----
   /** 更新器是否可用（dev / 未签名环境为 false） */

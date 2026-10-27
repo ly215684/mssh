@@ -2,7 +2,7 @@ import { Bot, CheckCircle2, FolderOpen, Globe, Server, SquareTerminal, XCircle }
 import { useAppStore } from '../../stores/appStore'
 import { useUiStore } from '../../stores/uiStore'
 import { useT } from '../../i18n/I18nProvider'
-import { Button, Input, PasswordInput, message, Modal, Select, Switch, Tabs } from '../../components/ui'
+import { Button, Input, PasswordInput, message, Modal, Segmented, Select, Switch, Tabs } from '../../components/ui'
 import { useState } from 'react'
 import { AI_PROVIDER_PRESETS, type AiErrorCode, type AiProviderId } from '../../../electron/shared/types'
 
@@ -251,6 +251,16 @@ export function SettingsModal() {
 
           {tab === 'ai' && (
             <div className="divide-y divide-bd/60">
+              <AiField label={t('settings.aiMode')} desc={t('settings.aiModeDesc')}>
+                <Segmented
+                  value={settings.ai.mode}
+                  onChange={v => setAi({ mode: v })}
+                  options={[
+                    { label: t('ai.modeChat'), value: 'chat' },
+                    { label: t('ai.modeAgent'), value: 'agent' },
+                  ]}
+                />
+              </AiField>
               <AiField label={t('settings.aiProvider')} desc={t('settings.aiProviderDesc')}>
                 <Select
                   value={settings.ai.provider}

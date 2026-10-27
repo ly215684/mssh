@@ -1,6 +1,6 @@
 # mssh
 
-基于 Electron + React + TypeScript 的多协议远程连接客户端，支持 SSH / Telnet / VNC、SFTP 双栏文件管理、远程编辑、Docker / 定时任务管理、AI 运维助手、资源监控面板、系统管理（systemd / 软件包 / 防火墙）与自动更新。
+基于 Electron + React + TypeScript 的多协议远程连接客户端，支持 SSH / Telnet / VNC、SFTP 双栏文件管理、远程编辑、Docker / 定时任务管理、AI 运维助手（对话 / 代理双模式，内置 MCP 服务）、资源监控面板、系统管理（systemd / 软件包 / 防火墙）与自动更新。
 
 ## ✨ 功能特性
 
@@ -59,6 +59,11 @@
 
 ### AI 运维助手
 - 终端工具栏一键打开 **AI 助手**（与 Docker / 定时任务按钮同排），面板悬浮在终端右侧，不占用标签页，仅在终端页面显示
+- **两种模式**（设置 → AI 助手切换，默认 **对话模式**；顶栏实时显示当前模式）：
+  - **对话模式**：只对话、不操作服务器，仅提供建议与命令文本，可一键复制后自行执行
+  - **代理模式**：AI 可调用 MCP 工具直接操作当前终端所在的服务器；**每次工具调用都弹出确认卡片，由用户点击「允许」后才会执行**，拒绝则把结果回填给模型继续对话
+- **内置 MCP 服务**：进程内实现的 JSON-RPC 2.0 服务（`initialize` / `tools/list` / `tools/call`），提供 4 个工具——`run_command`（执行命令，需确认）、`write_file`（写入文件，需确认）、`read_file`、`list_directory`；工具执行结果（退出码 / stdout / stderr / 文件内容截断）显示在工具卡片并回传给模型，最多 8 轮工具调用
+- 代理模式绑定当前终端会话，未连接 SSH 时禁止发送并提示先建立连接；点击「停止」会中止生成并把未决的工具调用按拒绝处理
 - **主流大模型**：内置 DeepSeek、OpenAI、Kimi（Moonshot）、通义千问、智谱 GLM、豆包（火山方舟）、硅基流动预设，也支持任意 OpenAI 兼容接口（自定义 Base URL / 模型名）
 - **流式对话**：SSE 实时输出，可随时停止、失败重试、重新生成
 - **多会话管理**：新建 / 切换 / 删除，历史记录本地持久化，自动携带最近 40 条上下文 + 自定义系统提示词
@@ -95,7 +100,7 @@
 - **通用**：语言、主题、启动恢复会话、自动检查更新、打开数据目录
 - **终端**：字体、字号、光标样式（块/下划线/竖线）、光标闪烁、滚动回滚行数、编辑器文件上限、铃声
 - **SSH**：keepalive 间隔、连接超时、压缩传输、传输并发数、传输限速、X11 显示地址
-- **AI 助手**：服务商预设、API Key、接口地址、模型名、系统提示词、测试连接
+- **AI 助手**：模式（对话 / 代理）、服务商预设、API Key、接口地址、模型名、系统提示词、测试连接
 - 设置通过主进程 `safeStorage` 持久化（含 API Key 加密）
 
 ### 会话恢复
@@ -176,7 +181,7 @@ pnpm release 1.2.3
 mssh/
 ├── electron/                  # 主进程
 │   ├── ipc/                   # IPC handler（连接/SFTP/本地文件/设置/更新/AI）
-│   ├── services/              # sshService / telnetService / vncService / sftpService / localFs / configStore / aiService / autoUpdate
+│   ├── services/              # sshService / telnetService / vncService / sftpService / localFs / configStore / aiService / mcpService / autoUpdate
 │   ├── shims/                 # ws 原生可选依赖的 CJS 桩（bufferutil / utf-8-validate）
 │   ├── shared/api.ts          # 渲染进程可调用的 API 类型声明
 │   ├── preload.ts             # 上下文桥接
@@ -194,7 +199,7 @@ mssh/
 │   │   ├── cron/              # 定时任务管理面板（crontab 增删改 / 脚本选择）
 │   │   ├── monitor/           # 资源监控面板（指标曲线 / 磁盘 / 进程管理）
 │   │   ├── system/            # 系统管理面板（systemd / 软件包 / 防火墙）
-│   │   ├── ai/                # AI 助手悬浮面板（流式对话 / Markdown 渲染 / 代码复制）
+│   │   ├── ai/                # AI 助手悬浮面板（双模式 / 工具审批卡片 / 流式对话 / Markdown 渲染）
 │   │   └── settings/          # 设置弹窗（通用 / 终端 / SSH / AI）
 │   ├── stores/                # Zustand 状态
 │   ├── styles/                # tokens.css（设计令牌）/ base.css
@@ -212,6 +217,7 @@ mssh/
 - 使用 VNC 需服务器已启动 VNC 服务（如 TigerVNC / RealVNC）并开放对应端口
 - X11 转发需要本地运行 X 服务器（Windows：VcXsrv / Xming），且服务器开启 `X11Forwarding`
 - AI 助手不内置模型额度，需自行准备兼容 OpenAI 接口的 API Key
+- AI 代理模式只能操作当前终端所在的 SSH 会话（不支持 Telnet / VNC），且需逐个确认工具调用；内置 MCP 工具仅包含命令执行与文件读写/列目录，不含交互式命令（如 `top`、`vim`）
 - 监控面板与状态栏指标依赖 Linux 的 `/proc` 与 `ps` / `df`，非 Linux 系统可能无法采集
 - 系统管理面板依赖目标系统的 systemd / 包管理器 / 防火墙工具，非 root 执行需已配置免密 `sudo`
 - 打包上传 / 下载依赖远程 `tar`（缺失时可一键安装）；断点续传仅当目标端同名文件小于源文件时生效，否则从头写入

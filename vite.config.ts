@@ -19,6 +19,11 @@ export default defineConfig({
     // 注入应用版本号（StatusBar 显示 / 关于信息）
     __APP_VERSION__: JSON.stringify(pkg.version),
   },
+  // Windows 上 Hyper-V/WinNAT 会预留 51xx 端口段，默认 5173 可能报 EACCES 无法监听，
+  // 改用未被预留的 3000（dev server 地址由 vite-plugin-electron 注入，无需另配）
+  server: {
+    port: 3000,
+  },
   // noVNC 1.7 的模块含顶层 await（WebCodecs H264 能力探测），需 es2022 target；
   // Electron 30 内置 Chromium 124，原生支持 TLA
   build: {

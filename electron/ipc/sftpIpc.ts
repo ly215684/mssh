@@ -28,8 +28,12 @@ export function registerSftpIpc() {
     sftp.extract(sessionId, remotePath),
   )
   ipcMain.handle('sftp:hasUnzip', (_e, sessionId: string) => sftp.hasUnzip(sessionId))
+  ipcMain.handle('sftp:hasTar', (_e, sessionId: string) => sftp.hasTar(sessionId))
   ipcMain.handle('sftp:installUnzipStream', (_e, sessionId: string) =>
     sftp.installUnzipStream(sessionId),
+  )
+  ipcMain.handle('sftp:installTarStream', (_e, sessionId: string) =>
+    sftp.installTarStream(sessionId),
   )
   ipcMain.handle('sftp:upload', (_e, sessionId: string, localPaths: string[], remoteDir: string) =>
     sftp.upload(sessionId, localPaths, remoteDir),
@@ -38,6 +42,17 @@ export function registerSftpIpc() {
     'sftp:download',
     (_e, sessionId: string, remotePaths: string[], localDir: string) =>
       sftp.download(sessionId, remotePaths, localDir),
+  )
+  // 打包压缩传输（本地/远程 tar.gz 一次传输）
+  ipcMain.handle(
+    'sftp:uploadPack',
+    (_e, sessionId: string, localPaths: string[], remoteDir: string) =>
+      sftp.uploadPack(sessionId, localPaths, remoteDir),
+  )
+  ipcMain.handle(
+    'sftp:downloadPack',
+    (_e, sessionId: string, remotePaths: string[], localDir: string) =>
+      sftp.downloadPack(sessionId, remotePaths, localDir),
   )
   ipcMain.handle('sftp:cancelTransfer', (_e, id: string) => sftp.cancelTransfer(id))
   ipcMain.handle(

@@ -28,6 +28,8 @@ interface SessionState {
   openDocker: (connectionId: string) => Promise<void>
   openCron: (connectionId: string) => Promise<void>
   openVnc: (connectionId: string) => Promise<void>
+  openMonitor: (connectionId: string) => Promise<void>
+  openSystem: (connectionId: string) => Promise<void>
   closeTab: (tabId: string) => void
   setActive: (tabId: string) => void
   reconnect: (connectionId: string) => Promise<void>
@@ -45,6 +47,8 @@ function tabTitle(type: SessionTab['type'], connName: string): string {
   if (type === 'sftp') return 'SFTP'
   if (type === 'docker') return 'Docker'
   if (type === 'cron') return 'Cron'
+  if (type === 'monitor') return 'Monitor'
+  if (type === 'system') return 'System'
   // terminal / vnc 均显示连接名
   return connName
 }
@@ -303,6 +307,48 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     get().saveLayout()
   },
 
+  openMonitor: async connectionId => {
+    const existed = get().tabs.find(t => t.connectionId === connectionId && t.type === 'monitor')
+    if (existed) {
+      set({ activeTabId: existed.id })
+      return
+    }
+    const tabId = `${connectionId}-monitor`
+    await ensureSession(get, set, connectionId)
+    set(s => {
+      if (s.tabs.some(t => t.id === tabId)) return {}
+      return {
+        tabs: [
+          ...s.tabs,
+          { id: tabId, connectionId, type: 'monitor', title: tabTitle('monitor', '') },
+        ],
+        activeTabId: tabId,
+      }
+    })
+    get().saveLayout()
+  },
+
+  openSystem: async connectionId => {
+    const existed = get().tabs.find(t => t.connectionId === connectionId && t.type === 'system')
+    if (existed) {
+      set({ activeTabId: existed.id })
+      return
+    }
+    const tabId = `${connectionId}-system`
+    await ensureSession(get, set, connectionId)
+    set(s => {
+      if (s.tabs.some(t => t.id === tabId)) return {}
+      return {
+        tabs: [
+          ...s.tabs,
+          { id: tabId, connectionId, type: 'system', title: tabTitle('system', '') },
+        ],
+        activeTabId: tabId,
+      }
+    })
+    get().saveLayout()
+  },
+
   closeTab: tabId => {
     const tab = get().tabs.find(t => t.id === tabId)
     if (!tab) return
@@ -420,6 +466,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       else if (tab.type === 'vnc') await get().openVnc(tab.connectionId)
       else if (tab.type === 'docker') await get().openDocker(tab.connectionId)
       else if (tab.type === 'cron') await get().openCron(tab.connectionId)
+      else if (tab.type === 'monitor') await get().openMonitor(tab.connectionId)
+      else if (tab.type === 'system') await get().openSystem(tab.connectionId)
       else await get().openSftp(tab.connectionId)
     }
     if (activeTabId) set({ activeTabId })

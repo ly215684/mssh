@@ -547,7 +547,7 @@ export function CronView({ tab }: { tab: SessionTab }) {
         >
           {t('cron.add')}
         </Button>
-        <Tooltip label={t('common.refresh')}>
+        <Tooltip placement="bottom" label={t('common.refresh')}>
           <button
             onClick={() => void load()}
             disabled={!sessionId || loading}

@@ -1,10 +1,11 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useConnStore } from '../../stores/connStore'
 import { useSessionStore } from '../../stores/sessionStore'
 import { startTransferListener, useTransferStore } from '../../stores/transferStore'
 import { useT } from '../../i18n/I18nProvider'
-import { errorAlert } from '../../components/ui'
+import { errorAlert, confirm } from '../../components/ui'
 import { FilePane, type PaneHandle } from './FilePane'
+import { InstallPkgModal } from './InstallPkgModal'
 import { TransferPanel } from './TransferPanel'
 import type { SessionTab } from '../../../electron/shared/types'
 
@@ -24,6 +25,11 @@ export function SftpView({ tab }: { tab: SessionTab }) {
   const localRef = useRef<PaneHandle>(null)
   const remoteRef = useRef<PaneHandle>(null)
   const refreshTimer = useRef<number | undefined>(undefined)
+  /** 待安装 tar 后继续执行的打包任务 */
+  const [packAfterInstall, setPackAfterInstall] = useState<{
+    kind: 'upload' | 'download'
+    paths: string[]
+  } | null>(null)
 
   // 传输完成 → 防抖刷新目标面板
   useEffect(() => {
@@ -75,6 +81,53 @@ export function SftpView({ tab }: { tab: SessionTab }) {
     else doDownload(paths)
   }
 
+  /**
+   * 打包前确保远端有 tar：缺失时询问是否安装，
+   * 用户同意则记录待续任务并返回 false（由安装弹窗回调重试）。
+   */
+  const ensureTar = async (kind: 'upload' | 'download', paths: string[]): Promise<boolean> => {
+    if (!sessionId) return false
+    const hasTar = await window.api.sftpHasTar(sessionId).catch(() => true)
+    if (hasTar) return true
+    const ok = await confirm({
+      title: t('sftp.tarMissingTitle'),
+      content: t('sftp.tarMissingPrompt'),
+      okText: t('sftp.tarInstallNow'),
+      cancelText: t('common.cancel'),
+    })
+    if (ok) setPackAfterInstall({ kind, paths })
+    return false
+  }
+
+  /** 打包压缩上传：本地选中项 → 远程当前目录；远端无 tar 时询问是否安装 */
+  const doPackUpload = async (paths: string[]) => {
+    const target = remoteRef.current?.getDir()
+    if (!sessionId || !target || !paths.length) return
+    if (!(await ensureTar('upload', paths))) return
+    window.api
+      .sftpUploadPack(sessionId, paths, target)
+      .then(() => setExpanded(true))
+      .catch(e => void errorAlert(t('sftp.uploadFailed'), e))
+  }
+
+  /** 打包压缩下载：远程选中项 → 本地当前目录；远端无 tar 时询问是否安装 */
+  const doPackDownload = async (paths: string[]) => {
+    const target = localRef.current?.getDir()
+    if (!sessionId || !target || !paths.length) return
+    if (!(await ensureTar('download', paths))) return
+    window.api
+      .sftpDownloadPack(sessionId, paths, target)
+      .then(ids => {
+        if (ids.length) setExpanded(true)
+      })
+      .catch(e => void errorAlert(t('sftp.downloadFailed'), e))
+  }
+
+  const handlePack = (sourceSide: 'local' | 'remote', paths: string[]) => {
+    if (sourceSide === 'local') void doPackUpload(paths)
+    else void doPackDownload(paths)
+  }
+
   return (
     <div className="flex flex-col h-full bg-bg">
       <div className="flex-1 min-h-0 relative">
@@ -86,6 +139,7 @@ export function SftpView({ tab }: { tab: SessionTab }) {
                 side="local"
                 sessionId={sessionId}
                 onTransfer={handleTransfer}
+                onPack={handlePack}
               />
             </div>
             <div className="min-w-0 h-full border-l border-bd">
@@ -95,6 +149,7 @@ export function SftpView({ tab }: { tab: SessionTab }) {
                 side="remote"
                 sessionId={sessionId}
                 onTransfer={handleTransfer}
+                onPack={handlePack}
               />
             </div>
           </div>
@@ -118,6 +173,21 @@ export function SftpView({ tab }: { tab: SessionTab }) {
         )}
       </div>
       <TransferPanel />
+      {/* 远程 tar 安装：实时日志弹窗，成功后自动继续打包上传/下载 */}
+      {sessionId && packAfterInstall && (
+        <InstallPkgModal
+          sessionId={sessionId}
+          pkg="tar"
+          onClose={() => setPackAfterInstall(null)}
+          onDone={success => {
+            const req = packAfterInstall
+            setPackAfterInstall(null)
+            if (!success || !req) return
+            if (req.kind === 'upload') void doPackUpload(req.paths)
+            else void doPackDownload(req.paths)
+          }}
+        />
+      )}
     </div>
   )
 }

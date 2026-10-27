@@ -64,6 +64,8 @@ export interface SshSettings {
   autoReconnect: boolean
   /** SFTP 传输并发请求数（1-64）。服务器 sftp 实现兼容性差时应调低 */
   transferConcurrency: number
+  /** SFTP 传输限速（KB/s，0 = 不限速） */
+  transferSpeedLimitKBps: number
   /** 本地 X 服务器的 DISPLAY 地址（主机:显示号，如 127.0.0.1:0；留空按 :0 处理） */
   x11Display: string
 }
@@ -151,7 +153,7 @@ export interface AppSettings {
 }
 
 /** 会话标签类型 */
-export type TabType = 'terminal' | 'sftp' | 'docker' | 'cron' | 'vnc'
+export type TabType = 'terminal' | 'sftp' | 'docker' | 'cron' | 'vnc' | 'monitor' | 'system'
 
 /** 会话标签 */
 export interface SessionTab {
@@ -316,6 +318,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     compression: false,
     autoReconnect: true,
     transferConcurrency: 4,
+    transferSpeedLimitKBps: 0,
     x11Display: '',
   },
   ai: {

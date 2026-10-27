@@ -93,11 +93,23 @@ export interface RendererApi {
   sftpExtract: (sessionId: string, path: string) => Promise<void>
   /** 检测远程是否已安装 unzip */
   sftpHasUnzip: (sessionId: string) => Promise<boolean>
+  /** 检测远程是否已安装 tar（打包传输依赖） */
+  sftpHasTar: (sessionId: string) => Promise<boolean>
   /** 远程流式安装 unzip（实时输出通过 onSshStreamData/onSshStreamClose 推送） */
   sftpInstallUnzipStream: (sessionId: string) => Promise<string>
+  /** 远程流式安装 tar（实时输出通过 onSshStreamData/onSshStreamClose 推送） */
+  sftpInstallTarStream: (sessionId: string) => Promise<string>
   /** 上传（支持目录递归），返回传输任务 id 列表 */
   sftpUpload: (sessionId: string, localPaths: string[], remoteDir: string) => Promise<string[]>
   sftpDownload: (sessionId: string, remotePaths: string[], localDir: string) => Promise<string[]>
+  /** 打包上传：本地 tar.gz 上传后远程解压，返回传输任务 id */
+  sftpUploadPack: (sessionId: string, localPaths: string[], remoteDir: string) => Promise<string>
+  /** 打包下载：远程打包为 tar.gz 后下载，返回传输任务 id 列表 */
+  sftpDownloadPack: (
+    sessionId: string,
+    remotePaths: string[],
+    localDir: string,
+  ) => Promise<string[]>
   /** 取消传输任务（等待中立即取消；进行中的中断后续写入） */
   cancelTransfer: (id: string) => Promise<boolean>
   /** 传输进度事件（返回取消订阅函数） */

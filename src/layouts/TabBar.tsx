@@ -1,4 +1,14 @@
-import { CalendarClock, Container, Folder, Monitor, Plus, SquareTerminal, X } from 'lucide-react'
+import {
+  Activity,
+  CalendarClock,
+  Container,
+  Folder,
+  Monitor,
+  Plus,
+  Server,
+  SquareTerminal,
+  X,
+} from 'lucide-react'
 import { useSessionStore } from '../stores/sessionStore'
 import { useUiStore } from '../stores/uiStore'
 import { useT } from '../i18n/I18nProvider'
@@ -35,6 +45,10 @@ export function TabBar() {
               <Container size={13} className="shrink-0" />
             ) : tab.type === 'cron' ? (
               <CalendarClock size={13} className="shrink-0" />
+            ) : tab.type === 'monitor' ? (
+              <Activity size={13} className="shrink-0" />
+            ) : tab.type === 'system' ? (
+              <Server size={13} className="shrink-0" />
             ) : (
               <Folder size={13} className="shrink-0" />
             )}

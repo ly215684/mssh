@@ -230,6 +230,14 @@ export function SettingsModal() {
                   onChange={e => setSsh({ transferConcurrency: number(e.target.value, 4) })}
                 />
               </Row>
+              <Row label={t('settings.transferSpeedLimit')} desc={t('settings.transferSpeedLimitDesc')}>
+                <Input
+                  type="number"
+                  min={0}
+                  value={settings.ssh.transferSpeedLimitKBps}
+                  onChange={e => setSsh({ transferSpeedLimitKBps: Math.max(0, number(e.target.value, 0)) })}
+                />
+              </Row>
               <Row label={t('settings.x11Display')} desc={t('settings.x11DisplayDesc')}>
                 <Input
                   value={settings.ssh.x11Display}

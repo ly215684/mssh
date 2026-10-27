@@ -11,28 +11,23 @@ import {
 } from 'react'
 import {
   ArrowUp,
-  CheckCircle2,
   Download,
   FilePlus,
   FolderPlus,
   HardDrive,
-  Loader2,
   MonitorDown,
+  Package,
   Pencil,
   RefreshCw,
   Server,
-  Terminal,
   Trash2,
   Upload,
-  XCircle,
 } from 'lucide-react'
 import type { FileInfo } from '../../../electron/shared/types'
 import { useT } from '../../i18n/I18nProvider'
 import { getGlobalT } from '../../i18n/I18nProvider'
 import {
-  Button,
   Empty,
-  Modal,
   Spinner,
   Tooltip,
   confirm,
@@ -54,6 +49,7 @@ import {
   type FilterKey,
 } from '../../utils/files'
 import { FileEditor } from './FileEditor'
+import { InstallPkgModal } from './InstallPkgModal'
 import { MoveTargetModal, type MoveItem } from './MoveTargetModal'
 
 /** 跨面板传输：来源侧 + 路径列表 */
@@ -69,6 +65,8 @@ interface FilePaneProps {
   sessionId: string | null
   /** 发起跨栏传输（sourceSide 为文件来源侧） */
   onTransfer: (sourceSide: TransferSource, paths: string[]) => void
+  /** 打包压缩后传输（sourceSide 为文件来源侧） */
+  onPack?: (sourceSide: TransferSource, paths: string[]) => void
   onSelectionChange?: (paths: string[]) => void
 }
 
@@ -116,7 +114,7 @@ function IconBtn({
   children: ReactNode
 }) {
   return (
-    <Tooltip label={label}>
+    <Tooltip placement="bottom" label={label}>
       <button
         type="button"
         disabled={disabled}
@@ -137,7 +135,7 @@ function IconBtn({
 
 /** 单侧文件面板（本地 / 远程通用） */
 export const FilePane = forwardRef<PaneHandle, FilePaneProps>(function FilePane(
-  { side, sessionId, onTransfer, onSelectionChange },
+  { side, sessionId, onTransfer, onPack, onSelectionChange },
   ref,
 ) {
   const t = useT()
@@ -471,6 +469,17 @@ export const FilePane = forwardRef<PaneHandle, FilePaneProps>(function FilePane(
       case 'download':
         onTransfer('remote', [f.path])
         break
+      case 'packUpload': {
+        // 右键命中多选集合时批量打包，否则仅打包当前行
+        const names = selected.has(f.name) && selected.size > 1 ? [...selected] : [f.name]
+        onPack?.('local', names.map(n => joinPath(dirRef.current, n)))
+        break
+      }
+      case 'packDownload': {
+        const names = selected.has(f.name) && selected.size > 1 ? [...selected] : [f.name]
+        onPack?.('remote', names.map(n => joinPath(dirRef.current, n)))
+        break
+      }
       case 'edit':
         setEditorPath(f.path)
         break
@@ -510,6 +519,9 @@ export const FilePane = forwardRef<PaneHandle, FilePaneProps>(function FilePane(
     ...(isRemote ? [{ key: 'edit', label: t('ctx.edit') }] : []),
     ...(!f.isDir && isArchive(f.name) ? [{ key: 'extract', label: t('ctx.extract') }] : []),
     ...(isRemote ? [{ key: 'download', label: t('ctx.download') }] : []),
+    ...(isRemote
+      ? [{ key: 'packDownload', label: t('ctx.packDownload') }]
+      : [{ key: 'packUpload', label: t('ctx.packUpload') }]),
     ...(!isRemote && !f.isDir ? [{ key: 'open', label: t('ctx.open') }] : []),
     { key: 'rename', label: t('common.rename') },
     ...(isRemote ? [{ key: 'move', label: t('ctx.moveTo') }] : []),
@@ -654,6 +666,13 @@ export const FilePane = forwardRef<PaneHandle, FilePaneProps>(function FilePane(
           onClick={() => onTransfer(side, selPaths())}
         >
           {isRemote ? <Download size={14} /> : <Upload size={14} />}
+        </IconBtn>
+        <IconBtn
+          label={t(isRemote ? 'ctx.packDownload' : 'ctx.packUpload')}
+          disabled={busy || !canTransfer}
+          onClick={() => onPack?.(side, selPaths())}
+        >
+          <Package size={14} />
         </IconBtn>
         {isRemote && (
           <IconBtn
@@ -863,8 +882,9 @@ export const FilePane = forwardRef<PaneHandle, FilePaneProps>(function FilePane(
 
       {/* 远程 unzip 安装：实时日志弹窗，成功后自动继续解压 */}
       {isRemote && sessionId && installFor && (
-        <InstallUnzipModal
+        <InstallPkgModal
           sessionId={sessionId}
+          pkg="unzip"
           onClose={() => setInstallFor(null)}
           onDone={async success => {
             const f = installFor
@@ -885,158 +905,3 @@ export const FilePane = forwardRef<PaneHandle, FilePaneProps>(function FilePane(
   )
 })
 
-/** 远程 unzip 安装：流式日志弹窗，实时展示 apt-get/yum 等的 stdout/stderr，
- *  结束后自动二次校验 unzip 可用性，回调 onDone(success) 通知调用方。 */
-const MAX_INSTALL_LOG_CHARS = 1_000_000
-
-function InstallUnzipModal({
-  sessionId,
-  onClose,
-  onDone,
-}: {
-  sessionId: string
-  onClose: () => void
-  onDone: (success: boolean) => void
-}) {
-  const t = useT()
-  const [output, setOutput] = useState('')
-  const [code, setCode] = useState<number | null>(null)
-  /** 命令成功后做二次校验：'pending' | 'ok' | 'fail' */
-  const [verify, setVerify] = useState<'pending' | 'ok' | 'fail'>('pending')
-  const [error, setError] = useState<string | null>(null)
-  const streamIdRef = useRef<string | null>(null)
-  const preRef = useRef<HTMLPreElement>(null)
-
-  // 启动流式安装
-  useEffect(() => {
-    let cancelled = false
-    setOutput('')
-    setCode(null)
-    setVerify('pending')
-    setError(null)
-    window.api
-      .sftpInstallUnzipStream(sessionId)
-      .then(sid => {
-        if (cancelled) {
-          window.api.sshStreamKill(sid)
-          return
-        }
-        streamIdRef.current = sid
-      })
-      .catch(e => {
-        if (!cancelled) {
-          setError(e instanceof Error ? e.message : String(e))
-          setCode(1)
-          setVerify('fail')
-        }
-      })
-    return () => {
-      cancelled = true
-      if (streamIdRef.current) {
-        window.api.sshStreamKill(streamIdRef.current)
-        streamIdRef.current = null
-      }
-    }
-  }, [sessionId])
-
-  // 订阅流式输出
-  useEffect(() => {
-    const offData = window.api.onSshStreamData((id, chunk) => {
-      if (id !== streamIdRef.current) return
-      setOutput(p => {
-        const next = p + chunk
-        return next.length > MAX_INSTALL_LOG_CHARS ? next.slice(-MAX_INSTALL_LOG_CHARS / 2) : next
-      })
-    })
-    const offClose = window.api.onSshStreamClose(async (id, c) => {
-      if (id !== streamIdRef.current) return
-      streamIdRef.current = null
-      setCode(c)
-      if (c !== 0) {
-        setVerify('fail')
-        return
-      }
-      // 命令成功后二次校验 unzip 是否真的可用
-      try {
-        const ok = await window.api.sftpHasUnzip(sessionId)
-        setVerify(ok ? 'ok' : 'fail')
-      } catch {
-        setVerify('fail')
-      }
-    })
-    return () => {
-      offData()
-      offClose()
-    }
-  }, [sessionId])
-
-  // 输出自动滚动到底部
-  useEffect(() => {
-    if (preRef.current) preRef.current.scrollTop = preRef.current.scrollHeight
-  }, [output])
-
-  // 校验结束 → 回调外层
-  useEffect(() => {
-    if (verify === 'pending') return
-    // 等待一次渲染让用户看到结果，再回调外层
-    const timer = setTimeout(() => onDone(verify === 'ok'), 50)
-    return () => clearTimeout(timer)
-  }, [verify, onDone])
-
-  const finished = code !== null && verify !== 'pending'
-  const success = verify === 'ok'
-
-  const handleClose = () => {
-    if (streamIdRef.current) {
-      window.api.sshStreamKill(streamIdRef.current)
-      streamIdRef.current = null
-    }
-    onClose()
-  }
-
-  return (
-    <Modal
-      open
-      onClose={handleClose}
-      maskClosable={false}
-      closable={finished}
-      width={680}
-      title={
-        <span className="inline-flex items-center gap-2">
-          <Terminal size={15} className="text-accent" />
-          {t('sftp.installUnzipTitle')}
-        </span>
-      }
-      footer={
-        <div className="flex items-center gap-2.5 w-full">
-          {code === null ? (
-            <span className="text-xs text-dim inline-flex items-center gap-1.5 mr-auto">
-              <Loader2 size={13} className="animate-spin" />
-              {t('sftp.installingUnzip')}
-            </span>
-          ) : success ? (
-            <span className="text-xs text-accent inline-flex items-center gap-1.5 mr-auto">
-              <CheckCircle2 size={14} />
-              {t('sftp.installUnzipDone')}
-            </span>
-          ) : (
-            <span className="text-xs text-danger inline-flex items-center gap-1.5 mr-auto">
-              <XCircle size={14} />
-              {t('sftp.installUnzipFailed')}
-            </span>
-          )}
-          <Button size="sm" onClick={handleClose} disabled={!finished}>
-            {t('common.close')}
-          </Button>
-        </div>
-      }
-    >
-      <pre
-        ref={preRef}
-        className="bg-term-bg text-term-fg font-mono text-xs leading-relaxed rounded-md border border-bd p-3 h-[52vh] overflow-auto whitespace-pre-wrap break-all m-0 select-text"
-      >
-        {output || (code === null ? t('common.loading') : error ?? '')}
-      </pre>
-    </Modal>
-  )
-}

@@ -84,7 +84,7 @@ export function VncView({ tab }: { tab: SessionTab }) {
           <span className="text-xs text-faint truncate max-w-[200px]">— {desktopName}</span>
         )}
         <div className="flex-1" />
-        <Tooltip label={t('vnc.ctrlAltDel')}>
+        <Tooltip placement="bottom" label={t('vnc.ctrlAltDel')}>
           <button
             onClick={() => rfbRef.current?.sendCtrlAltDel()}
             className="size-7 flex items-center justify-center rounded-md text-dim hover:text-fg hover:bg-hover transition-colors"
@@ -108,7 +108,7 @@ export function VncView({ tab }: { tab: SessionTab }) {
             {viewOnly ? <EyeOff size={14} /> : <Eye size={14} />}
           </button>
         </Tooltip>
-        <Tooltip label={t('term.disconnect')}>
+        <Tooltip placement="bottom" label={t('term.disconnect')}>
           <button
             onClick={() => disconnect(tab.connectionId)}
             className="size-7 flex items-center justify-center rounded-md text-dim hover:text-danger hover:bg-danger/10 transition-colors"

@@ -90,11 +90,17 @@ const api: RendererApi = {
   sftpTouch: (sessionId, remotePath) => ipcRenderer.invoke('sftp:touch', sessionId, remotePath),
   sftpExtract: (sessionId, remotePath) => ipcRenderer.invoke('sftp:extract', sessionId, remotePath),
   sftpHasUnzip: sessionId => ipcRenderer.invoke('sftp:hasUnzip', sessionId),
+  sftpHasTar: sessionId => ipcRenderer.invoke('sftp:hasTar', sessionId),
   sftpInstallUnzipStream: sessionId => ipcRenderer.invoke('sftp:installUnzipStream', sessionId),
+  sftpInstallTarStream: sessionId => ipcRenderer.invoke('sftp:installTarStream', sessionId),
   sftpUpload: (sessionId, localPaths, remoteDir) =>
     ipcRenderer.invoke('sftp:upload', sessionId, localPaths, remoteDir),
   sftpDownload: (sessionId, remotePaths, localDir) =>
     ipcRenderer.invoke('sftp:download', sessionId, remotePaths, localDir),
+  sftpUploadPack: (sessionId, localPaths, remoteDir) =>
+    ipcRenderer.invoke('sftp:uploadPack', sessionId, localPaths, remoteDir),
+  sftpDownloadPack: (sessionId, remotePaths, localDir) =>
+    ipcRenderer.invoke('sftp:downloadPack', sessionId, remotePaths, localDir),
   cancelTransfer: id => ipcRenderer.invoke('sftp:cancelTransfer', id),
   onTransfer: cb => {
     const handler = (_e: IpcRendererEvent, item: Parameters<typeof cb>[0]) => cb(item)

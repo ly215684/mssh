@@ -101,7 +101,7 @@ export function AiFloatingPanel() {
           <ChevronDown size={13} className="shrink-0 opacity-70" />
         </button>
         <div className="flex-1" />
-        <Tooltip label={t('ai.newChat')}>
+        <Tooltip placement="bottom" label={t('ai.newChat')}>
           <button
             onClick={() => newChat()}
             className="size-7 flex items-center justify-center rounded-md text-dim hover:text-fg hover:bg-hover transition-colors"
@@ -109,7 +109,7 @@ export function AiFloatingPanel() {
             <Plus size={16} />
           </button>
         </Tooltip>
-        <Tooltip label={t('settings.title')}>
+        <Tooltip placement="bottom" label={t('settings.title')}>
           <button
             onClick={() => setSettingsOpen(true)}
             className="size-7 flex items-center justify-center rounded-md text-dim hover:text-fg hover:bg-hover transition-colors"

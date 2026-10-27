@@ -381,7 +381,7 @@ export function DockerView({ tab }: { tab: SessionTab }) {
         >
           {t('docker.compose')}
         </Button>
-        <Tooltip label={t('common.refresh')}>
+        <Tooltip placement="bottom" label={t('common.refresh')}>
           <button
             onClick={() => void load()}
             disabled={!sessionId || loading}

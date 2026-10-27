@@ -1,4 +1,13 @@
-import { Bot, CalendarClock, Container, Download, Power, Upload } from 'lucide-react'
+import {
+  Activity,
+  Bot,
+  CalendarClock,
+  Container,
+  Download,
+  Power,
+  Server,
+  Upload,
+} from 'lucide-react'
 import type { SessionTab } from '../../../electron/shared/types'
 import { useConnStore } from '../../stores/connStore'
 import { useSessionStore, SSH_RETRY_MAX_ATTEMPTS } from '../../stores/sessionStore'
@@ -17,6 +26,8 @@ export function TerminalView({ tab }: { tab: SessionTab }) {
   const openSftp = useSessionStore(s => s.openSftp)
   const openDocker = useSessionStore(s => s.openDocker)
   const openCron = useSessionStore(s => s.openCron)
+  const openMonitor = useSessionStore(s => s.openMonitor)
+  const openSystem = useSessionStore(s => s.openSystem)
   const disconnect = useSessionStore(s => s.disconnect)
   const aiPanelOpen = useUiStore(s => s.aiPanelOpen)
   const toggleAiPanel = useUiStore(s => s.toggleAiPanel)
@@ -41,7 +52,7 @@ export function TerminalView({ tab }: { tab: SessionTab }) {
           <span className={conn.username ? '' : 'text-accent'}>{conn.host}</span>:{conn.port}
         </span>
         <div className="flex-1" />
-        <Tooltip label={t('term.ai')}>
+        <Tooltip placement="bottom" label={t('term.ai')}>
           <button
             onClick={() => toggleAiPanel()}
             className={`size-7 flex items-center justify-center rounded-md transition-colors ${
@@ -55,7 +66,7 @@ export function TerminalView({ tab }: { tab: SessionTab }) {
         </Tooltip>
         {!isTelnet && (
           <>
-            <Tooltip label={t('term.docker')}>
+            <Tooltip placement="bottom" label={t('term.docker')}>
               <button
                 onClick={() => openDocker(tab.connectionId)}
                 className="size-7 flex items-center justify-center rounded-md text-dim hover:text-accent hover:bg-accent-dim transition-colors"
@@ -63,7 +74,7 @@ export function TerminalView({ tab }: { tab: SessionTab }) {
                 <Container size={15} />
               </button>
             </Tooltip>
-            <Tooltip label={t('term.cron')}>
+            <Tooltip placement="bottom" label={t('term.cron')}>
               <button
                 onClick={() => openCron(tab.connectionId)}
                 className="size-7 flex items-center justify-center rounded-md text-dim hover:text-accent hover:bg-accent-dim transition-colors"
@@ -71,7 +82,23 @@ export function TerminalView({ tab }: { tab: SessionTab }) {
                 <CalendarClock size={15} />
               </button>
             </Tooltip>
-            <Tooltip label={t('term.upload')}>
+            <Tooltip placement="bottom" label={t('term.monitor')}>
+              <button
+                onClick={() => openMonitor(tab.connectionId)}
+                className="size-7 flex items-center justify-center rounded-md text-dim hover:text-accent hover:bg-accent-dim transition-colors"
+              >
+                <Activity size={15} />
+              </button>
+            </Tooltip>
+            <Tooltip placement="bottom" label={t('term.system')}>
+              <button
+                onClick={() => openSystem(tab.connectionId)}
+                className="size-7 flex items-center justify-center rounded-md text-dim hover:text-accent hover:bg-accent-dim transition-colors"
+              >
+                <Server size={15} />
+              </button>
+            </Tooltip>
+            <Tooltip placement="bottom" label={t('term.upload')}>
               <button
                 onClick={() => openSftp(tab.connectionId)}
                 className="size-7 flex items-center justify-center rounded-md text-dim hover:text-fg hover:bg-hover transition-colors"
@@ -79,7 +106,7 @@ export function TerminalView({ tab }: { tab: SessionTab }) {
                 <Upload size={15} />
               </button>
             </Tooltip>
-            <Tooltip label={t('term.download')}>
+            <Tooltip placement="bottom" label={t('term.download')}>
               <button
                 onClick={() => openSftp(tab.connectionId)}
                 className="size-7 flex items-center justify-center rounded-md text-dim hover:text-fg hover:bg-hover transition-colors"
@@ -89,7 +116,7 @@ export function TerminalView({ tab }: { tab: SessionTab }) {
             </Tooltip>
           </>
         )}
-        <Tooltip label={t('term.disconnect')}>
+        <Tooltip placement="bottom" label={t('term.disconnect')}>
           <button
             onClick={() => disconnect(tab.connectionId)}
             className="size-7 flex items-center justify-center rounded-md text-dim hover:text-danger hover:bg-danger/10 transition-colors"

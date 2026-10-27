@@ -1,15 +1,32 @@
-import type { SFTPWrapper, Stats } from 'ssh2'
+import type { SFTPWrapper, Stats, OpenMode } from 'ssh2'
 import { randomUUID } from 'node:crypto'
+import { execFile } from 'node:child_process'
+import os from 'node:os'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
+import { promisify } from 'node:util'
 import { BrowserWindow } from 'electron'
 import type { FileInfo, TransferItem } from '../shared/types'
 import { getAll } from './configStore'
 import { execCommand, execStream, getSession, onSessionClosed, type SshSession } from './sshService'
 import { sortEntries } from './localFs'
 
+const execFileAsync = promisify(execFile)
+
 function asSession(id: string): SshSession | undefined {
   return getSession(id)
+}
+
+/** POSIX 单引号转义（远程命令参数） */
+function sq(s: string): string {
+  return `'${s.replace(/'/g, `'\\''`)}'`
+}
+
+/** 远程路径的父目录 */
+function remoteDirname(p: string): string {
+  const clean = p.replace(/\/+$/, '')
+  const i = clean.lastIndexOf('/')
+  return i <= 0 ? '/' : clean.slice(0, i)
 }
 
 function broadcast(channel: string, ...args: unknown[]) {
@@ -338,20 +355,30 @@ export async function hasUnzip(sessionId: string): Promise<boolean> {
   }
 }
 
+/** 检测远程是否安装 tar（打包上传/下载依赖） */
+export async function hasTar(sessionId: string): Promise<boolean> {
+  try {
+    const r = await execCommand(sessionId, 'command -v tar')
+    return r.code === 0 && r.stdout.trim().length > 0
+  } catch {
+    return false
+  }
+}
+
 /**
- * 流式安装 unzip：单条 shell 脚本自动检测包管理器 + root 检测 + 调用安装命令，
+ * 生成流式安装依赖包的 shell 脚本：自动检测包管理器 + root 检测 + 调用安装命令，
  * 实时输出（stdout/stderr）通过 ssh:stream:data 广播给渲染进程，
- * 结束时通过 ssh:stream:close 推送退出码。返回 streamId。
+ * 结束时通过 ssh:stream:close 推送退出码。
  */
-export async function installUnzipStream(sessionId: string): Promise<string> {
+function installPkgScript(pkg: 'unzip' | 'tar'): string {
   // 用 String.raw 避免 ${} 被 JS 模板字符串解析（脚本里都是 shell 变量）
-  const script = String.raw`set -e
+  return String.raw`set -e
 PM=
 for c in apt-get yum dnf apk pacman zypper; do
   if command -v "$c" >/dev/null 2>&1; then PM="$c"; break; fi
 done
 if [ -z "$PM" ]; then
-  echo "未检测到可用的包管理器，请手动安装 unzip" >&2
+  echo "未检测到可用的包管理器，请手动安装 ${pkg}" >&2
   exit 2
 fi
 echo "使用包管理器: $PM"
@@ -362,15 +389,24 @@ else
   SUDO=""
 fi
 case "$PM" in
-  apt-get) $SUDO apt-get install -y unzip ;;
-  yum)     $SUDO yum install -y unzip ;;
-  dnf)     $SUDO dnf install -y unzip ;;
-  apk)     $SUDO apk add --no-cache unzip ;;
-  pacman)  $SUDO pacman -S --noconfirm unzip ;;
-  zypper)  $SUDO zypper install -y unzip ;;
+  apt-get) $SUDO apt-get install -y ${pkg} ;;
+  yum)     $SUDO yum install -y ${pkg} ;;
+  dnf)     $SUDO dnf install -y ${pkg} ;;
+  apk)     $SUDO apk add --no-cache ${pkg} ;;
+  pacman)  $SUDO pacman -S --noconfirm ${pkg} ;;
+  zypper)  $SUDO zypper install -y ${pkg} ;;
   *)       echo "不支持的包管理器: $PM" >&2; exit 3 ;;
 esac`
-  return execStream(sessionId, script)
+}
+
+/** 流式安装 unzip，返回 streamId */
+export async function installUnzipStream(sessionId: string): Promise<string> {
+  return execStream(sessionId, installPkgScript('unzip'))
+}
+
+/** 流式安装 tar，返回 streamId */
+export async function installTarStream(sessionId: string): Promise<string> {
+  return execStream(sessionId, installPkgScript('tar'))
 }
 
 /** 远程路径拼接（POSIX） */
@@ -749,7 +785,29 @@ function pipelineCount(): number {
   return 4
 }
 
-function sftpOpen(sftp: SFTPWrapper, p: string, flags: 'r' | 'w'): Promise<Buffer> {
+/**
+ * 传输限速器：按 KB/s 均匀放行数据块；未设置（0）时返回 null，不产生任何开销。
+ * 多个传输任务各自持有独立限速器，限速值作用于单任务。
+ */
+function makeLimiter(): ((bytes: number) => Promise<void>) | null {
+  let limitKBps = 0
+  try {
+    limitKBps = getAll().settings.ssh.transferSpeedLimitKBps || 0
+  } catch {
+    limitKBps = 0
+  }
+  if (!Number.isFinite(limitKBps) || limitKBps <= 0) return null
+  const bytesPerMs = (limitKBps * 1024) / 1000
+  let nextAt = Date.now()
+  return async (bytes: number) => {
+    const now = Date.now()
+    const start = Math.max(now, nextAt)
+    nextAt = start + bytes / bytesPerMs
+    if (start > now) await new Promise(r => setTimeout(r, start - now))
+  }
+}
+
+function sftpOpen(sftp: SFTPWrapper, p: string, flags: OpenMode): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     sftp.open(p, flags, (err, handle) => (err ? reject(err) : resolve(handle)))
   })
@@ -843,11 +901,25 @@ async function putFile(
 ): Promise<void> {
   // 排队等待期间不计入看门狗，开始传输时重置
   if (ctl) ctl.lastProgress = Date.now()
-  const handle = await withAbort(sftpOpen(sftp, remotePath, 'w'), ctl)
+  const limiter = makeLimiter()
+
+  // 断点续传：远程已存在同名文件且小于源文件时，从已有大小处继续写入
+  const existing = await withAbort(
+    new Promise<number>(resolve => {
+      sftp.stat(remotePath, (err, st) => resolve(err ? 0 : Number(st.size ?? 0)))
+    }),
+    ctl,
+  )
+  if (existing > 0 && existing === fileSize) {
+    onProgress(fileSize)
+    return
+  }
+  const resume = existing > 0 && existing < fileSize ? existing : 0
+  const handle = await withAbort(sftpOpen(sftp, remotePath, resume > 0 ? 'r+' : 'w'), ctl)
   const fd = await fsp.open(localPath, 'r')
   try {
     await new Promise<void>((resolve, reject) => {
-      let offset = 0
+      let offset = resume
       let inFlight = 0
       let settled = false
       const fail = (err: Error) => {
@@ -856,7 +928,8 @@ async function putFile(
         reject(err)
       }
       if (ctl) ctl.abort = fail
-      const pump = () => {
+      if (resume > 0) onProgress(resume)
+      const pump = async () => {
         if (settled) return
         if (ctl?.cancelled) return fail(new CancelledError())
         if (offset >= fileSize) {
@@ -871,27 +944,25 @@ async function putFile(
         offset += len
         inFlight++
         const buf = Buffer.allocUnsafe(len)
-        fd.read(buf, 0, len, pos)
-          .then(() => {
-            if (settled) {
-              inFlight--
-              return
-            }
-            sftp.write(handle, buf, 0, len, pos, err => {
-              inFlight--
-              if (settled) return
-              if (err) return fail(err instanceof Error ? err : new Error(String(err)))
-              if (ctl) ctl.lastProgress = Date.now()
-              onProgress(pos + len)
-              pump()
-            })
-          })
-          .catch((err: Error) => {
+        try {
+          await fd.read(buf, 0, len, pos)
+          if (settled) return
+          if (limiter) await limiter(len)
+          if (settled) return
+          sftp.write(handle, buf, 0, len, pos, err => {
             inFlight--
-            fail(err)
+            if (settled) return
+            if (err) return fail(err instanceof Error ? err : new Error(String(err)))
+            if (ctl) ctl.lastProgress = Date.now()
+            onProgress(pos + len)
+            void pump()
           })
+        } catch (err) {
+          inFlight--
+          fail(err instanceof Error ? err : new Error(String(err)))
+        }
       }
-      for (let i = 0, n = pipelineCount(); i < n; i++) pump()
+      for (let i = 0, n = pipelineCount(); i < n; i++) void pump()
     })
   } finally {
     if (ctl) ctl.abort = null
@@ -975,11 +1046,23 @@ async function getFile(
 ): Promise<void> {
   // 排队等待期间不计入看门狗，开始传输时重置
   if (ctl) ctl.lastProgress = Date.now()
+  const limiter = makeLimiter()
+
+  // 断点续传：本地已有同名文件且小于远程文件时，从已有大小处继续写入
+  const existing = await fsp
+    .stat(localPath)
+    .then(s => s.size)
+    .catch(() => 0)
+  if (existing > 0 && existing === fileSize) {
+    onProgress(fileSize)
+    return
+  }
+  const resume = existing > 0 && existing < fileSize ? existing : 0
   const handle = await withAbort(sftpOpen(sftp, remotePath, 'r'), ctl)
-  const fd = await fsp.open(localPath, 'w')
+  const fd = await fsp.open(localPath, resume > 0 ? 'r+' : 'w')
   try {
     await new Promise<void>((resolve, reject) => {
-      let offset = 0
+      let offset = resume
       let inFlight = 0
       let settled = false
       const fail = (err: Error) => {
@@ -988,7 +1071,8 @@ async function getFile(
         reject(err)
       }
       if (ctl) ctl.abort = fail
-      const pump = () => {
+      if (resume > 0) onProgress(resume)
+      const pump = async () => {
         if (settled) return
         if (ctl?.cancelled) return fail(new CancelledError())
         if (offset >= fileSize) {
@@ -1003,27 +1087,239 @@ async function getFile(
         offset += len
         inFlight++
         const buf = Buffer.allocUnsafe(len)
-        sftp.read(handle, buf, 0, len, pos, (err, bytesRead) => {
-          inFlight--
+        try {
+          if (limiter) await limiter(len)
           if (settled) return
-          if (err) return fail(err instanceof Error ? err : new Error(String(err)))
-          fd.write(buf, 0, bytesRead, pos)
-            .then(() => {
-              if (settled) return
-              if (ctl) ctl.lastProgress = Date.now()
-              onProgress(pos + bytesRead)
-              pump()
-            })
-            .catch((werr: Error) => fail(werr))
-        })
+          sftp.read(handle, buf, 0, len, pos, (err, bytesRead) => {
+            inFlight--
+            if (settled) return
+            if (err) return fail(err instanceof Error ? err : new Error(String(err)))
+            fd.write(buf, 0, bytesRead, pos)
+              .then(() => {
+                if (settled) return
+                if (ctl) ctl.lastProgress = Date.now()
+                onProgress(pos + bytesRead)
+                void pump()
+              })
+              .catch((werr: Error) => fail(werr))
+          })
+        } catch (err) {
+          inFlight--
+          fail(err instanceof Error ? err : new Error(String(err)))
+        }
       }
-      for (let i = 0, n = pipelineCount(); i < n; i++) pump()
+      for (let i = 0, n = pipelineCount(); i < n; i++) void pump()
     })
   } finally {
     if (ctl) ctl.abort = null
     sftpClose(sftp, handle)
     await fd.close().catch(() => {})
   }
+}
+
+// ---------- 打包压缩传输 ----------
+
+/** 传输显示用时间戳 */
+function stampName(): string {
+  return new Date()
+    .toISOString()
+    .replace(/[-:]/g, '')
+    .replace('T', '-')
+    .slice(0, 15)
+}
+
+/**
+ * 打包上传：本地 tar.gz → 上传到远程临时文件 → 远程解压到目标目录并清理。
+ * 适用于大量小文件/深层目录，避免逐文件往返开销。返回传输任务 id。
+ */
+export async function uploadPack(
+  sessionId: string,
+  localPaths: string[],
+  remoteDir: string,
+): Promise<string> {
+  const session = asSession(sessionId)
+  if (!session) throw new Error('SSH 会话不存在或已断开')
+  if (!localPaths.length) throw new Error('没有需要上传的文件')
+
+  const id = randomUUID()
+  const archive = path.join(os.tmpdir(), `mssh-pack-${id}.tar.gz`)
+  // 逐个路径用 -C 指定父目录，兼容 GNU tar 与 Windows 自带 bsdtar
+  const args = ['-czf', archive]
+  for (const p of localPaths) args.push('-C', path.dirname(p), path.basename(p))
+  await execFileAsync('tar', args, { maxBuffer: 1024 * 1024 })
+  const st = await fsp.stat(archive)
+  if (st.size <= 0) {
+    await fsp.rm(archive, { force: true })
+    throw new Error('打包失败：生成的文件为空')
+  }
+
+  const remoteTmp = joinRemote(remoteDir, `.mssh-pack-${id}.tar.gz`)
+  const packName = `pack-${stampName()}.tar.gz`
+  const item: TransferItem = {
+    id,
+    direction: 'upload',
+    connectionId: session.connCfg.id,
+    localPath: archive,
+    remotePath: joinRemote(remoteDir, packName),
+    name: packName,
+    size: st.size,
+    transferred: 0,
+    status: 'pending',
+    speed: 0,
+  }
+  const ctl = newCtl(sessionId)
+  transfers.set(id, item)
+  ctls.set(id, ctl)
+  emitTransfer(item)
+
+  enqueue(sessionId, async () => {
+    try {
+      if (ctl.cancelled) {
+        item.status = 'cancelled'
+        emitTransfer(item)
+        return
+      }
+      const sftp = await getSftp(sessionId)
+      item.status = 'active'
+      emitTransfer(item)
+      let lastTs = Date.now()
+      let lastBytes = 0
+      await putFile(sftp, archive, remoteTmp, st.size, ctl, sent => {
+        item.transferred = sent
+        const now = Date.now()
+        if (now - lastTs > 300) {
+          const instant = ((sent - lastBytes) * 1000) / (now - lastTs)
+          item.speed = item.speed > 0 ? item.speed * 0.6 + instant * 0.4 : instant
+          lastTs = now
+          lastBytes = sent
+          emitTransfer(item)
+        }
+      })
+      if (ctl.cancelled) throw new CancelledError()
+      ctl.lastProgress = Date.now()
+      const res = await execCommand(
+        sessionId,
+        `mkdir -p ${sq(remoteDir)} && tar -xzf ${sq(remoteTmp)} -C ${sq(remoteDir)} && rm -f ${sq(remoteTmp)}`,
+      )
+      if (res.code !== 0) {
+        throw new Error((res.stderr || res.stdout).trim() || `解压失败（退出码 ${res.code}）`)
+      }
+      item.transferred = st.size
+      item.speed = 0
+      item.status = 'done'
+      emitTransfer(item)
+    } catch (e) {
+      item.speed = 0
+      item.status = e instanceof CancelledError ? 'cancelled' : 'error'
+      if (item.status === 'error') item.error = (e as Error).message
+      emitTransfer(item)
+    } finally {
+      ctls.delete(id)
+      transfers.delete(id)
+      await fsp.rm(archive, { force: true }).catch(() => {})
+    }
+  })
+
+  return id
+}
+
+/**
+ * 打包下载：远程 tar.gz 到临时文件 → 下载到本地目录。
+ * 目录/多文件一次压缩，最终得到压缩包；返回传输任务 id 列表（取消/跳过时为空）。
+ */
+export async function downloadPack(
+  sessionId: string,
+  remotePaths: string[],
+  localDir: string,
+): Promise<string[]> {
+  const session = asSession(sessionId)
+  if (!session) throw new Error('SSH 会话不存在或已断开')
+  if (!remotePaths.length) return []
+
+  const id = randomUUID()
+  const baseName = `pack-${stampName()}.tar.gz`
+  let localName = baseName
+  if (await localExists(path.join(localDir, baseName))) {
+    const r = await askConflict('local', baseName, localDir, false)
+    if (r === 'cancel' || r.action === 'skip') return []
+    if (r.action === 'rename') localName = await uniqueLocalName(localDir, baseName)
+  }
+  const localPath = path.join(localDir, localName)
+
+  const remoteTmp = `/tmp/mssh-pack-${id}.tar.gz`
+  // 面板一次只会选中同一目录下的条目，统一用首个路径的父目录
+  const srcDir = remoteDirname(remotePaths[0])
+  const names = remotePaths.map(p => sq(basenameRemote(p))).join(' ')
+  const res = await execCommand(sessionId, `tar -czf ${sq(remoteTmp)} -C ${sq(srcDir)} ${names}`)
+  if (res.code !== 0) {
+    throw new Error((res.stderr || res.stdout).trim() || `打包失败（退出码 ${res.code}）`)
+  }
+
+  const sftp = await getSftp(sessionId)
+  const stats = await new Promise<Stats>((resolve, reject) => {
+    sftp.stat(remoteTmp, (err, s) => (err ? reject(err) : resolve(s)))
+  })
+  const size = Number(stats.size ?? 0)
+
+  // 覆盖下载时清空旧文件，避免断点续传把旧内容拼进新压缩包
+  await fsp.rm(localPath, { force: true }).catch(() => {})
+
+  const item: TransferItem = {
+    id,
+    direction: 'download',
+    connectionId: session.connCfg.id,
+    localPath,
+    remotePath: remoteTmp,
+    name: localName,
+    size,
+    transferred: 0,
+    status: 'pending',
+    speed: 0,
+  }
+  const ctl = newCtl(sessionId)
+  transfers.set(id, item)
+  ctls.set(id, ctl)
+  emitTransfer(item)
+
+  enqueue(sessionId, async () => {
+    try {
+      if (ctl.cancelled) {
+        item.status = 'cancelled'
+        emitTransfer(item)
+        return
+      }
+      item.status = 'active'
+      emitTransfer(item)
+      let lastTs = Date.now()
+      let lastBytes = 0
+      await getFile(sftp, remoteTmp, localPath, size, ctl, sent => {
+        item.transferred = sent
+        const now = Date.now()
+        if (now - lastTs > 300) {
+          const instant = ((sent - lastBytes) * 1000) / (now - lastTs)
+          item.speed = item.speed > 0 ? item.speed * 0.6 + instant * 0.4 : instant
+          lastTs = now
+          lastBytes = sent
+          emitTransfer(item)
+        }
+      })
+      item.transferred = size
+      item.speed = 0
+      item.status = 'done'
+      emitTransfer(item)
+    } catch (e) {
+      item.speed = 0
+      item.status = e instanceof CancelledError ? 'cancelled' : 'error'
+      if (item.status === 'error') item.error = (e as Error).message
+      emitTransfer(item)
+    } finally {
+      ctls.delete(id)
+      transfers.delete(id)
+      await execCommand(sessionId, `rm -f ${sq(remoteTmp)}`).catch(() => {})
+    }
+  })
+
+  return [id]
 }
 
 export { remoteExists }

@@ -1,6 +1,5 @@
-## v0.0.44 更新内容
+## v0.0.45 更新内容
 
-- docs: 更新 AI 运维助手的双模式与 MCP 服务说明 (bd4d649)
-- feat: 为 AI 助手新增代理模式，支持通过 MCP 工具操作远程服务器 (0ab928d)
+- refactor: remove max agent tool call rounds limit and update logic (10ba6b6)
 
-**完整变更**: v0.0.43...v0.0.44
+**完整变更**: v0.0.44...v0.0.45

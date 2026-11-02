@@ -13,10 +13,22 @@ import type {
   LayoutState,
   SshSessionInfo,
   SshSettings,
+  SyncFileResult,
+  SyncScope,
+  SyncUploadResult,
   SysStats,
   TransferItem,
   UpdateEvent,
+  WebDavSettings,
+  WebDavTestResult,
 } from './types'
+
+/** 通过系统对话框选中的私钥文件（content 为私钥明文内容，由渲染进程交给主进程加密保存） */
+export interface PickedPrivateKey {
+  path: string
+  name: string
+  content: string
+}
 
 /** preload 通过 contextBridge 暴露给渲染进程的 API（主/渲染共享类型） */
 export interface RendererApi {
@@ -38,13 +50,35 @@ export interface RendererApi {
   deleteGroup: (id: string) => Promise<void>
   saveLayout: (layout: LayoutState) => Promise<void>
   openPath: (p: string) => Promise<boolean>
-  /** 系统对话框选择私钥文件 */
-  pickPrivateKey: () => Promise<string | null>
+  /** 系统对话框选择私钥文件并读取内容 */
+  pickPrivateKey: () => Promise<PickedPrivateKey | null>
+  /** 读取指定路径的私钥内容（用于兼容旧版按路径保存的连接） */
+  readPrivateKeyFile: (path: string) => Promise<string>
   /** 拖拽文件 → 真实磁盘路径 */
   pathForFile: (file: File) => string
   /** 剪贴板 */
   clipboardReadText: () => Promise<string>
   clipboardWriteText: (text: string) => Promise<void>
+
+  // ---- 配置同步 ----
+  /** 导出加密备份文件，取消时 canceled=true */
+  syncExportFile: (password: string, scope: SyncScope) => Promise<SyncFileResult>
+  /** 从备份文件导入并按连接 ID 合并，取消时返回 null */
+  syncImportFile: (password: string) => Promise<AllConfig | null>
+  /** 测试 WebDAV 连通性 */
+  syncTestWebdav: (webdav: WebDavSettings) => Promise<WebDavTestResult>
+  /** 上传加密配置到 WebDAV */
+  syncUploadWebdav: (
+    password: string,
+    webdav: WebDavSettings,
+    scope: SyncScope,
+  ) => Promise<SyncUploadResult>
+  /** 从 WebDAV 下载并合并配置 */
+  syncDownloadWebdav: (
+    password: string,
+    webdav: WebDavSettings,
+    scope: SyncScope,
+  ) => Promise<AllConfig>
 
   // ---- SSH ----
   sshConnect: (conn: Connection, sshSettings: SshSettings) => Promise<SshSessionInfo>

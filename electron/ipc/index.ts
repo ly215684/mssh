@@ -5,6 +5,7 @@ import { registerSftpIpc } from './sftpIpc'
 import { registerLocalFsIpc } from './localFsIpc'
 import { registerUpdateIpc } from './updateIpc'
 import { registerAiIpc } from './aiIpc'
+import { registerSyncIpc } from './syncIpc'
 
 /** 在 app.whenReady 前统一注册所有 IPC handler */
 export function registerAllIpc() {
@@ -15,4 +16,5 @@ export function registerAllIpc() {
   registerLocalFsIpc()
   registerUpdateIpc()
   registerAiIpc()
+  registerSyncIpc()
 }

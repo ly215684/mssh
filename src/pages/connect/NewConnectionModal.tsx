@@ -24,9 +24,15 @@ const DEFAULT_CONN: Omit<Connection, 'id' | 'createdAt'> = {
   username: 'root',
   authType: 'password',
   password: '',
+  privateKey: '',
   privateKeyPath: '',
   keyPassphrase: '',
   groupId: null,
+}
+
+/** 取路径中的文件名（用于展示所选私钥） */
+function fileName(p: string) {
+  return p.split(/[\\/]/).pop() || p
 }
 
 /** 各协议默认端口（协议切换联动用） */
@@ -60,14 +66,30 @@ export function NewConnectionModal() {
   const openTerminal = useSessionStore(s => s.openTerminal)
 
   const [form, setForm] = useState(DEFAULT_CONN)
+  const [keyName, setKeyName] = useState('')
+  const [keyLoading, setKeyLoading] = useState(false)
 
   useEffect(() => {
     if (!open) return
     if (editing) {
       const { id: _id, createdAt: _createdAt, ...rest } = editing
       setForm({ ...DEFAULT_CONN, ...rest })
+      const legacyPath = rest.privateKey ? '' : (rest.privateKeyPath ?? '')
+      setKeyName(legacyPath ? fileName(legacyPath) : '')
+      // 旧版连接只保存了路径：自动读取私钥内容，保存时改为加密存储
+      if (legacyPath) {
+        setKeyLoading(true)
+        window.api
+          .readPrivateKeyFile(legacyPath)
+          .then(content => setForm(f => ({ ...f, privateKey: content, privateKeyPath: '' })))
+          .catch(() => {
+            // 读取失败时保留路径，连接阶段仍会按路径读取
+          })
+          .finally(() => setKeyLoading(false))
+      }
     } else {
       setForm({ ...DEFAULT_CONN })
+      setKeyName('')
     }
   }, [open, editing])
 
@@ -80,6 +102,16 @@ export function NewConnectionModal() {
     }
     const isVnc = form.protocol === 'vnc'
     const isTelnet = form.protocol === 'telnet'
+    if (
+      !isVnc &&
+      !isTelnet &&
+      form.authType === 'key' &&
+      !form.privateKey?.trim() &&
+      !form.privateKeyPath?.trim()
+    ) {
+      message.warning(t('msg.keyRequired'))
+      return
+    }
     const name =
       form.name.trim() ||
       ((isTelnet || isVnc) && !form.username.trim()
@@ -226,22 +258,38 @@ export function NewConnectionModal() {
               </Field>
             ) : (
               <>
-                <Field label={t('newConn.keyPath')}>
+                <Field label={t('newConn.keyFile')}>
                   <div className="flex gap-2">
                     <Input
-                      value={form.privateKeyPath ?? ''}
-                      onChange={e => patch({ privateKeyPath: e.target.value })}
-                      placeholder="~/.ssh/id_rsa"
+                      value={keyName}
+                      readOnly
+                      placeholder={
+                        form.privateKey || form.privateKeyPath
+                          ? t('newConn.keySaved')
+                          : t('newConn.keySelectPh')
+                      }
                     />
                     <Button
+                      loading={keyLoading}
                       onClick={async () => {
-                        const p = await window.api.pickPrivateKey()
-                        if (p) patch({ privateKeyPath: p })
+                        try {
+                          const f = await window.api.pickPrivateKey()
+                          if (!f) return
+                          patch({ privateKey: f.content, privateKeyPath: '' })
+                          setKeyName(f.name)
+                        } catch (e) {
+                          message.error(
+                            t('msg.opFailed', {
+                              msg: e instanceof Error ? e.message : String(e),
+                            }),
+                          )
+                        }
                       }}
                     >
                       {t('newConn.browse')}
                     </Button>
                   </div>
+                  <div className="text-xs text-faint mt-1.5">{t('newConn.keyHint')}</div>
                 </Field>
                 <Field label={t('newConn.passphrase')}>
                   <PasswordInput

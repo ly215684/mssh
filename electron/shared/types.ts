@@ -21,7 +21,9 @@ export interface Connection {
   authType: AuthType
   /** 密码（由 configStore 加密存储，渲染进程拿到的是明文或空） */
   password?: string
-  /** 私钥文件路径 */
+  /** 私钥内容（OpenSSH/PEM 文本，由 configStore 加密存储，渲染进程拿到的是明文或空） */
+  privateKey?: string
+  /** 旧版配置遗留的私钥文件路径（仅为兼容已保存的连接，新配置不再写入） */
   privateKeyPath?: string
   /** 私钥口令 */
   keyPassphrase?: string
@@ -191,6 +193,26 @@ export const AI_PROVIDER_PRESETS: AiProviderPreset[] = [
   { id: 'custom', baseUrl: '', model: '' },
 ]
 
+/** WebDAV 云同步配置 */
+export interface WebDavSettings {
+  /** WebDAV 服务器根地址，如 https://dav.jianguoyun.com/dav/ */
+  url: string
+  username: string
+  /** 密码（由 configStore 加密存储） */
+  password: string
+  /** 远程目录，如 mssh-sync（不存在时上传会自动创建） */
+  remoteDir: string
+  /** 备份文件名，如 mssh-sync.mssh */
+  fileName: string
+}
+
+/** 配置同步设置 */
+export interface SyncSettings {
+  /** 同步口令：跨设备加解密备份，由 configStore 加密存储 */
+  password: string
+  webdav: WebDavSettings
+}
+
 /** 应用设置 */
 export interface AppSettings {
   language: Language
@@ -202,6 +224,57 @@ export interface AppSettings {
   terminal: TerminalSettings
   ssh: SshSettings
   ai: AiSettings
+  sync: SyncSettings
+}
+
+/** 同步范围：all = 全部配置，connections = 仅连接列表（连接 + 分组） */
+export type SyncScope = 'all' | 'connections'
+
+/** 同步载荷（加密前的内容，敏感字段为明文） */
+export interface SyncData {
+  /** 同步范围，旧备份无此字段时视为全部配置 */
+  scope?: SyncScope
+  /** 仅同步连接列表时不含设置 */
+  settings?: AppSettings
+  connections: Connection[]
+  groups: ConnGroup[]
+  layout?: LayoutState | null
+}
+
+/** 同步信封（写入文件 / 上传 WebDAV 的加密结构） */
+export interface SyncEnvelope {
+  format: 'mssh-sync'
+  version: 1
+  alg: 'aes-256-gcm'
+  kdf: 'pbkdf2-sha256'
+  iterations: number
+  salt: string
+  iv: string
+  tag: string
+  data: string
+  createdAt: number
+}
+
+/** 导出到文件的结果 */
+export interface SyncFileResult {
+  canceled: boolean
+  path?: string
+  connections: number
+  groups: number
+}
+
+/** WebDAV 上传结果 */
+export interface SyncUploadResult {
+  connections: number
+  groups: number
+  bytes: number
+}
+
+/** WebDAV 连通性测试结果 */
+export interface WebDavTestResult {
+  ok: boolean
+  message: string
+  status?: number
 }
 
 /** 会话标签类型 */
@@ -383,5 +456,15 @@ export const DEFAULT_SETTINGS: AppSettings = {
       '你是一名经验丰富的 Linux 运维与开发专家，内置在 SSH 客户端 mssh 中。' +
       '请简洁、准确地回答问题；涉及命令时优先给出可直接复制执行的代码块，' +
       '并注明适用场景与风险。回答使用与用户提问相同的语言。',
+  },
+  sync: {
+    password: '',
+    webdav: {
+      url: '',
+      username: '',
+      password: '',
+      remoteDir: 'mssh-sync',
+      fileName: 'mssh-sync.mssh',
+    },
   },
 }

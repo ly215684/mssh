@@ -1,12 +1,20 @@
-import { Bot, CheckCircle2, FolderOpen, Globe, Server, SquareTerminal, XCircle } from 'lucide-react'
+import { Bot, CheckCircle2, Cloud, FolderOpen, Globe, Server, SquareTerminal, XCircle } from 'lucide-react'
 import { useAppStore } from '../../stores/appStore'
+import { useConnStore } from '../../stores/connStore'
 import { useUiStore } from '../../stores/uiStore'
 import { useT } from '../../i18n/I18nProvider'
-import { Button, Input, PasswordInput, message, Modal, Segmented, Select, Switch, Tabs } from '../../components/ui'
+import { Button, Input, PasswordInput, message, confirm, Modal, Segmented, Select, Switch, Tabs } from '../../components/ui'
 import { useState } from 'react'
-import { AI_PROVIDER_PRESETS, type AiErrorCode, type AiProviderId } from '../../../electron/shared/types'
+import {
+  AI_PROVIDER_PRESETS,
+  type AiErrorCode,
+  type AiProviderId,
+  type AllConfig,
+  type SyncScope,
+} from '../../../electron/shared/types'
 
-type SettingsTab = 'general' | 'terminal' | 'ssh' | 'ai'
+type SettingsTab = 'general' | 'terminal' | 'ssh' | 'ai' | 'sync'
+type SyncAction = 'export' | 'import' | 'test' | 'upload' | 'download'
 
 /** 网络类错误转本地化排查提示；http/parse 等直接展示服务端原文 */
 function localAiError(
@@ -21,16 +29,30 @@ function localAiError(
   return raw
 }
 
-/** 设置弹窗：通用 / 终端 / SSH / AI */
+/** 字节数转为可读大小（上传成功提示用） */
+function formatSize(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+}
+
+/** 设置弹窗：通用 / 终端 / SSH / AI / 配置同步 */
 export function SettingsModal() {
   const t = useT()
   const open = useUiStore(s => s.settingsOpen)
   const setOpen = useUiStore(s => s.setSettingsOpen)
   const settings = useAppStore(s => s.settings)
   const dataDir = useAppStore(s => s.dataDir)
-  const { setSettings, setLanguage, setTerminal, setSsh, setAi } = useAppStore.getState()
+  const { setSettings, setLanguage, setTerminal, setSsh, setAi, setSync, setWebdav } =
+    useAppStore.getState()
 
   const [tab, setTab] = useState<SettingsTab>('general')
+  /** 同步操作进行状态（同一时间只允许一个） */
+  const [syncBusy, setSyncBusy] = useState<SyncAction | null>(null)
+  /** 同步范围：全部配置 / 仅连接列表（连接列表使用独立备份文件） */
+  const [syncScope, setSyncScope] = useState<SyncScope>('all')
+  /** WebDAV 连通性测试结果 */
+  const [webdavTest, setWebdavTest] = useState<{ ok: boolean; message: string } | null>(null)
   /** AI 连通性测试状态 */
   const [aiTesting, setAiTesting] = useState(false)
   const [aiTestResult, setAiTestResult] = useState<{
@@ -76,11 +98,98 @@ export function SettingsModal() {
     }
   }
 
+  /** 将导入/下载得到的最新配置同步到渲染进程 store */
+  function applySyncedConfig(cfg: AllConfig) {
+    document.documentElement.dataset.theme = cfg.settings.theme
+    useAppStore.getState().hydrate(cfg.settings, cfg.dataDir)
+    useConnStore.getState().hydrate(cfg.connections, cfg.groups)
+  }
+
+  function requireSyncPassword() {
+    if (!settings.sync.password.trim()) {
+      message.error(t('settings.syncNoPassword'))
+      return false
+    }
+    return true
+  }
+
+  function requireWebdav() {
+    if (!settings.sync.webdav.url.trim() || !settings.sync.webdav.fileName.trim()) {
+      message.error(t('settings.syncNeedWebdav'))
+      return false
+    }
+    return true
+  }
+
+  async function runSync(action: SyncAction) {
+    if (syncBusy) return
+
+    if (action === 'test') {
+      if (!requireWebdav()) return
+      setSyncBusy('test')
+      setWebdavTest(null)
+      try {
+        const r = await window.api.syncTestWebdav(settings.sync.webdav)
+        setWebdavTest({ ok: r.ok, message: r.message })
+      } catch (e) {
+        setWebdavTest({ ok: false, message: e instanceof Error ? e.message : String(e) })
+      } finally {
+        setSyncBusy(null)
+      }
+      return
+    }
+
+    if (!requireSyncPassword()) return
+    if ((action === 'upload' || action === 'download') && !requireWebdav()) return
+
+    setSyncBusy(action)
+    try {
+      const password = settings.sync.password
+      const webdav = settings.sync.webdav
+      switch (action) {
+        case 'export': {
+          const r = await window.api.syncExportFile(password, syncScope)
+          if (!r.canceled) {
+            message.success(
+              t('settings.syncExportDone', { count: r.connections, path: r.path ?? '' }),
+            )
+          }
+          break
+        }
+        case 'import': {
+          const cfg = await window.api.syncImportFile(password)
+          if (!cfg) break
+          applySyncedConfig(cfg)
+          message.success(t('settings.syncImportDone', { count: cfg.connections.length }))
+          break
+        }
+        case 'upload': {
+          const ok = await confirm({ title: t('settings.syncUploadConfirm'), danger: true })
+          if (!ok) break
+          const r = await window.api.syncUploadWebdav(password, webdav, syncScope)
+          message.success(
+            t('settings.syncUploadDone', { count: r.connections, size: formatSize(r.bytes) }),
+          )
+          break
+        }
+        case 'download': {
+          const cfg = await window.api.syncDownloadWebdav(password, webdav, syncScope)
+          applySyncedConfig(cfg)
+          message.success(t('settings.syncImportDone', { count: cfg.connections.length }))
+          break
+        }
+      }
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : String(e))
+    } finally {
+      setSyncBusy(null)
+    }
+  }
+
   const number = (v: string, fallback: number) => {
     const n = parseInt(v, 10)
     return Number.isNaN(n) ? fallback : n
   }
-
   const Row = ({ label, desc, children }: { label: string; desc?: string; children: React.ReactNode }) => (
     <div className="flex items-center justify-between gap-6 py-3">
       <div className="min-w-0">
@@ -104,6 +213,7 @@ export function SettingsModal() {
               { key: 'terminal', label: t('settings.terminal'), icon: <SquareTerminal size={15} /> },
               { key: 'ssh', label: t('settings.ssh'), icon: <Server size={15} /> },
               { key: 'ai', label: t('settings.ai'), icon: <Bot size={15} /> },
+              { key: 'sync', label: t('settings.sync'), icon: <Cloud size={15} /> },
             ]}
           />
         </div>
@@ -246,6 +356,151 @@ export function SettingsModal() {
                   spellCheck={false}
                 />
               </Row>
+            </div>
+          )}
+
+          {tab === 'sync' && (
+            <div className="divide-y divide-bd/60">
+              <AiField label={t('settings.syncScope')} desc={t('settings.syncScopeDesc')}>
+                <Segmented
+                  value={syncScope}
+                  onChange={setSyncScope}
+                  options={[
+                    { label: t('settings.syncScopeAll'), value: 'all' },
+                    { label: t('settings.syncScopeConn'), value: 'connections' },
+                  ]}
+                />
+                {syncScope === 'connections' && (
+                  <div className="mt-1.5 text-xs text-faint leading-relaxed">
+                    {t('settings.syncConnFileHint')}
+                  </div>
+                )}
+              </AiField>
+
+              <AiField label={t('settings.syncPassword')} desc={t('settings.syncPasswordDesc')}>
+                <PasswordInput
+                  value={settings.sync.password}
+                  onChange={e => setSync({ password: e.target.value })}
+                  placeholder={t('settings.syncPasswordPh')}
+                  autoComplete="off"
+                />
+              </AiField>
+
+              <AiField label={t('settings.syncLocal')} desc={t('settings.syncMergeDesc')}>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="secondary"
+                    loading={syncBusy === 'export'}
+                    disabled={!!syncBusy}
+                    onClick={() => void runSync('export')}
+                  >
+                    {t('settings.syncExport')}
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    loading={syncBusy === 'import'}
+                    disabled={!!syncBusy}
+                    onClick={() => void runSync('import')}
+                  >
+                    {t('settings.syncImport')}
+                  </Button>
+                </div>
+              </AiField>
+
+              <div className="py-3">
+                <div className="text-[13px] text-fg">{t('settings.syncWebdav')}</div>
+              </div>
+
+              <AiField label={t('settings.syncWebdavUrl')} desc={t('settings.syncWebdavUrlDesc')}>
+                <Input
+                  value={settings.sync.webdav.url}
+                  onChange={e => {
+                    setWebdav({ url: e.target.value.trim() })
+                    setWebdavTest(null)
+                  }}
+                  placeholder="https://dav.jianguoyun.com/dav/"
+                  spellCheck={false}
+                />
+              </AiField>
+              <AiField label={t('settings.syncWebdavUser')}>
+                <Input
+                  value={settings.sync.webdav.username}
+                  onChange={e => setWebdav({ username: e.target.value })}
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+              </AiField>
+              <AiField label={t('settings.syncWebdavPass')}>
+                <PasswordInput
+                  value={settings.sync.webdav.password}
+                  onChange={e => setWebdav({ password: e.target.value })}
+                  autoComplete="off"
+                />
+              </AiField>
+              <AiField label={t('settings.syncWebdavDir')} desc={t('settings.syncWebdavDirDesc')}>
+                <Input
+                  value={settings.sync.webdav.remoteDir}
+                  onChange={e => setWebdav({ remoteDir: e.target.value.trim() })}
+                  spellCheck={false}
+                />
+              </AiField>
+              <AiField label={t('settings.syncWebdavFile')}>
+                <Input
+                  value={settings.sync.webdav.fileName}
+                  onChange={e => {
+                    setWebdav({ fileName: e.target.value.trim() })
+                    setWebdavTest(null)
+                  }}
+                  spellCheck={false}
+                />
+              </AiField>
+
+              <div className="py-3">
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="secondary"
+                    loading={syncBusy === 'test'}
+                    disabled={!!syncBusy}
+                    onClick={() => void runSync('test')}
+                  >
+                    {t('settings.syncTest')}
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    loading={syncBusy === 'upload'}
+                    disabled={!!syncBusy}
+                    onClick={() => void runSync('upload')}
+                  >
+                    {t('settings.syncUpload')}
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    loading={syncBusy === 'download'}
+                    disabled={!!syncBusy}
+                    onClick={() => void runSync('download')}
+                  >
+                    {t('settings.syncDownload')}
+                  </Button>
+                </div>
+                {webdavTest && (
+                  <div
+                    className={`mt-2 flex items-start gap-1.5 text-xs leading-5 ${
+                      webdavTest.ok ? 'text-accent' : 'text-danger'
+                    }`}
+                  >
+                    {webdavTest.ok ? (
+                      <CheckCircle2 size={14} className="mt-0.5 shrink-0" />
+                    ) : (
+                      <XCircle size={14} className="mt-0.5 shrink-0" />
+                    )}
+                    <span className="break-all selectable">
+                      {webdavTest.ok
+                        ? webdavTest.message
+                        : t('settings.syncTestFail') + webdavTest.message}
+                    </span>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 

@@ -233,7 +233,21 @@ export function connect(cfg: Connection, sshSettings: SshSettings): Promise<SshS
         // 服务器仅开启 keyboard-interactive（PAM）时自动回填密码重试
         connectCfg.tryKeyboard = true
       } else {
-        connectCfg.privateKey = fs.readFileSync(cfg.privateKeyPath ?? '', 'utf8')
+        // 优先使用配置中加密保存的私钥内容；旧版配置仍回退到文件路径读取
+        const savedKey = cfg.privateKey?.trim()
+        if (savedKey) {
+          connectCfg.privateKey = savedKey
+        } else if (cfg.privateKeyPath) {
+          connectCfg.privateKey = fs.readFileSync(cfg.privateKeyPath, 'utf8')
+        } else {
+          reject(
+            humanizeAuthError(
+              new Error('未配置私钥：请编辑该连接并重新选择私钥文件'),
+              cfg,
+            ),
+          )
+          return
+        }
         if (cfg.keyPassphrase) connectCfg.passphrase = cfg.keyPassphrase
       }
     } catch (e) {

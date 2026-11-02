@@ -4,8 +4,10 @@ import type {
   AppSettings,
   Language,
   SshSettings,
+  SyncSettings,
   TerminalSettings,
   ThemeMode,
+  WebDavSettings,
 } from '../../electron/shared/types'
 import { DEFAULT_SETTINGS } from '../../electron/shared/types'
 
@@ -20,6 +22,8 @@ interface AppState {
   setTerminal: (patch: Partial<TerminalSettings>) => void
   setSsh: (patch: Partial<SshSettings>) => void
   setAi: (patch: Partial<AiSettings>) => void
+  setSync: (patch: Partial<SyncSettings>) => void
+  setWebdav: (patch: Partial<WebDavSettings>) => void
 }
 
 /** 应用设置 store（语言/主题等，持久化由主进程 configStore 负责） */
@@ -54,6 +58,24 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setAi: patch => {
     const settings = { ...get().settings, ai: { ...get().settings.ai, ...patch } }
+    set({ settings })
+    window.api.saveSettings(settings)
+  },
+
+  setSync: patch => {
+    const settings = { ...get().settings, sync: { ...get().settings.sync, ...patch } }
+    set({ settings })
+    window.api.saveSettings(settings)
+  },
+
+  setWebdav: patch => {
+    const settings = {
+      ...get().settings,
+      sync: {
+        ...get().settings.sync,
+        webdav: { ...get().settings.sync.webdav, ...patch },
+      },
+    }
     set({ settings })
     window.api.saveSettings(settings)
   },

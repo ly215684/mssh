@@ -25,9 +25,18 @@ const api: RendererApi = {
   saveLayout: layout => ipcRenderer.invoke('layout:save', layout),
   openPath: p => ipcRenderer.invoke('app:openPath', p),
   pickPrivateKey: () => ipcRenderer.invoke('app:pickPrivateKey'),
+  readPrivateKeyFile: p => ipcRenderer.invoke('app:readPrivateKeyFile', p),
   pathForFile: file => webUtils.getPathForFile(file),
   clipboardReadText: () => ipcRenderer.invoke('clipboard:readText'),
   clipboardWriteText: text => ipcRenderer.invoke('clipboard:writeText', text),
+
+  syncExportFile: (password, scope) => ipcRenderer.invoke('sync:exportFile', password, scope),
+  syncImportFile: password => ipcRenderer.invoke('sync:importFile', password),
+  syncTestWebdav: webdav => ipcRenderer.invoke('sync:testWebdav', webdav),
+  syncUploadWebdav: (password, webdav, scope) =>
+    ipcRenderer.invoke('sync:uploadWebdav', password, webdav, scope),
+  syncDownloadWebdav: (password, webdav, scope) =>
+    ipcRenderer.invoke('sync:downloadWebdav', password, webdav, scope),
 
   sshConnect: (conn, sshSettings) => ipcRenderer.invoke('ssh:connect', conn, sshSettings),
   sshWrite: (sessionId, data) => ipcRenderer.invoke('ssh:write', sessionId, data),

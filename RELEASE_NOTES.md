@@ -1,5 +1,6 @@
-## v0.0.45 更新内容
+## v0.0.46 更新内容
 
-- refactor: remove max agent tool call rounds limit and update logic (10ba6b6)
+- feat: 新增终端工具栏可配置功能 (4eb14db)
+- feat: 添加配置同步功能，支持本地备份与 WebDAV 云同步 (e2edea7)
 
-**完整变更**: v0.0.44...v0.0.45
+**完整变更**: v0.0.45...v0.0.46

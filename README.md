@@ -1,6 +1,6 @@
 # mssh
 
-基于 Electron + React + TypeScript 的多协议远程连接客户端，支持 SSH / Telnet / VNC、SFTP 双栏文件管理、远程编辑、Docker / 定时任务管理、AI 运维助手（对话 / 代理双模式，内置 MCP 服务）、资源监控面板、系统管理（systemd / 软件包 / 防火墙）与自动更新。
+基于 Electron + React + TypeScript 的多协议远程连接客户端，支持 SSH / Telnet / VNC、SFTP 双栏文件管理、远程编辑、Docker / 定时任务管理、AI 运维助手（对话 / 代理双模式，内置 MCP 服务）、资源监控面板、系统管理（systemd / 软件包 / 防火墙）、配置同步（本地备份 / WebDAV 云同步）与自动更新。
 
 ## ✨ 功能特性
 
@@ -10,6 +10,7 @@
 - Telnet 支持 IAC 选项协商；用户名/密码留空时在终端交互登录，填写后自动应答 login / password 提示
 - Telnet 连接自动隐藏 SFTP / Docker / 定时任务等依赖 SSH 通道的入口
 - **X11 转发**：可按连接开启，远程 GUI 程序直接显示到本地；连接成功后自动探测本地 X 服务器并给出排查提示，显示地址可在 设置 → SSH 中调整（Windows 需运行 VcXsrv / Xming）
+- **可配置工具栏**：AI / Docker / 定时任务 / 监控 / 系统管理 / 文件传输按钮可在 设置 → 工具栏 中拖拽排序、单独开关；Telnet 连接自动隐藏依赖 SSH 的按钮，「断开连接」固定在最右侧
 - 右键复制 / 粘贴，支持 **Ctrl+Shift+C / Ctrl+Shift+V** 快捷键
 - 多行粘贴自动使用 bracketed paste mode，避免误执行
 - 连接状态可视化（连接中 / 已连接 / 错误 / 已断开 + 自动重连）
@@ -22,7 +23,7 @@
 - 连接状态、自动重连、断线原因展示与终端共用一套逻辑
 
 ### SFTP 文件管理
-- **双栏布局**：本地 ↔ 远程，拖拽互传
+- **双栏布局**：本地 ↔ 远程，拖拽互传；工具栏「文件传输」按钮打开传输面板统一处理上传 / 下载
 - **传输队列**：进度条 + 速度 + 已传/总量，可取消
 - **断点续传**：上传 / 下载按目标端已有文件大小从断点续写，中断后重新发起即可接着传
 - **传输限速**：可在 设置 → SSH 中为单个传输任务设置速度上限（KB/s，0 为不限速）
@@ -77,7 +78,7 @@
 - Telnet 可留空用户名/密码在终端交互登录，VNC 仅需主机与端口（可选密码）
 - SSH 连接可按需开启 **X11 转发**
 - 连接列表分组（拖拽创建分组）
-- 密码 / 私钥通过 `safeStorage` 加密存储
+- 密码 / 私钥 / 私钥口令通过 `safeStorage` 加密存储；选择私钥文件后直接加密保存文件内容（不再依赖本地路径），旧版仅存路径的连接在编辑时自动读取并迁移
 - 右键菜单：连接 / 编辑 / 创建副本 / 删除
 - 快速连接弹窗
 
@@ -96,12 +97,22 @@
 - **防火墙**：自动识别 ufw / firewalld / nft / iptables 并展示规则（ufw 为编号规则列表，可直接删除；其余展示原始输出），支持放行指定端口（TCP / UDP）写入对应工具规则
 - 危险操作二次确认，执行过程与安装/卸载日志流式展示；非 root 用户自动使用 `sudo -n`（需已配置免密 sudo）
 
+### 配置同步
+- 在 设置 → 配置同步 中，将连接列表与应用设置加密备份到**本地文件**或 **WebDAV**（如坚果云）
+- **同步范围**：全部配置 / 仅连接列表（仅连接与分组，不改动应用设置、AI 配置与布局）
+- **本地备份**：导出 / 导入 `.mssh` 加密备份文件；仅连接列表使用 `-conns` 后缀的独立文件，不覆盖完整备份
+- **WebDAV 云同步**：配置服务器地址、账号密码、远程目录与备份文件名，支持测试连接、上传、下载；目录不存在时上传自动创建，请求走 Chromium 网络栈并遵循系统代理
+- **加密方案**：PBKDF2-SHA256（10 万次迭代）派生密钥 + AES-256-GCM，两台设备填写相同同步口令即可互导
+- **合并策略**：连接与分组按 ID 覆盖合并、本地独有保留；设置按节合并，本机同步凭据（口令 / WebDAV 账号）始终保留不变
+
 ### 设置弹窗
 - **通用**：语言、主题、启动恢复会话、自动检查更新、打开数据目录
 - **终端**：字体、字号、光标样式（块/下划线/竖线）、光标闪烁、滚动回滚行数、编辑器文件上限、铃声
+- **工具栏**：终端工具栏按钮的拖拽排序与显示开关
 - **SSH**：keepalive 间隔、连接超时、压缩传输、传输并发数、传输限速、X11 显示地址
 - **AI 助手**：模式（对话 / 代理）、服务商预设、API Key、接口地址、模型名、系统提示词、测试连接
-- 设置通过主进程 `safeStorage` 持久化（含 API Key 加密）
+- **配置同步**：同步范围、同步口令、本地导出 / 导入、WebDAV 参数与测试 / 上传 / 下载
+- 设置通过主进程 `safeStorage` 持久化（含 API Key / 同步口令 / WebDAV 密码加密）
 
 ### 会话恢复
 - 启动时自动恢复上次的连接标签（终端 / SFTP / Docker / Cron / VNC / 监控 / 系统管理），可在设置中开关
@@ -142,6 +153,7 @@
 | 构建 | Vite 5 + vite-plugin-electron |
 | 打包 | electron-builder |
 | 自动更新 | electron-updater |
+| 配置同步 | 本地 `.mssh` 文件 / WebDAV（PBKDF2-SHA256 + AES-256-GCM） |
 | CI | GitHub Actions（Windows / Linux / macOS） |
 
 ## 🚀 开发
@@ -180,8 +192,8 @@ pnpm release 1.2.3
 ```
 mssh/
 ├── electron/                  # 主进程
-│   ├── ipc/                   # IPC handler（连接/SFTP/本地文件/设置/更新/AI）
-│   ├── services/              # sshService / telnetService / vncService / sftpService / localFs / configStore / aiService / mcpService / autoUpdate
+│   ├── ipc/                   # IPC handler（连接/SFTP/本地文件/设置/更新/AI/同步）
+│   ├── services/              # sshService / telnetService / vncService / sftpService / localFs / configStore / aiService / mcpService / syncService / autoUpdate
 │   ├── shims/                 # ws 原生可选依赖的 CJS 桩（bufferutil / utf-8-validate）
 │   ├── shared/api.ts          # 渲染进程可调用的 API 类型声明
 │   ├── preload.ts             # 上下文桥接
@@ -192,7 +204,7 @@ mssh/
 │   ├── layouts/               # 主布局 / 侧栏 / 标签栏 / 状态栏 / 标题栏
 │   ├── pages/
 │   │   ├── connect/           # 新建连接 / 快速连接
-│   │   ├── terminal/          # 终端视图（SSH / Telnet）
+│   │   ├── terminal/          # 终端视图（SSH / Telnet，工具栏按钮元数据 toolbarMeta）
 │   │   ├── vnc/               # VNC 远程桌面视图（noVNC）
 │   │   ├── sftp/              # SFTP 双栏 / 文件面板 / 编辑器 / 传输队列
 │   │   ├── docker/            # Docker 管理面板（容器 / 镜像 / 日志 / Compose）
@@ -200,7 +212,7 @@ mssh/
 │   │   ├── monitor/           # 资源监控面板（指标曲线 / 磁盘 / 进程管理）
 │   │   ├── system/            # 系统管理面板（systemd / 软件包 / 防火墙）
 │   │   ├── ai/                # AI 助手悬浮面板（双模式 / 工具审批卡片 / 流式对话 / Markdown 渲染）
-│   │   └── settings/          # 设置弹窗（通用 / 终端 / SSH / AI）
+│   │   └── settings/          # 设置弹窗（通用 / 终端 / 工具栏 / SSH / AI / 配置同步）
 │   ├── stores/                # Zustand 状态
 │   ├── styles/                # tokens.css（设计令牌）/ base.css
 │   └── utils/                 # 文件工具 / 终端主题
@@ -221,4 +233,6 @@ mssh/
 - 监控面板与状态栏指标依赖 Linux 的 `/proc` 与 `ps` / `df`，非 Linux 系统可能无法采集
 - 系统管理面板依赖目标系统的 systemd / 包管理器 / 防火墙工具，非 root 执行需已配置免密 `sudo`
 - 打包上传 / 下载依赖远程 `tar`（缺失时可一键安装）；断点续传仅当目标端同名文件小于源文件时生效，否则从头写入
+- 配置同步依赖 WebDAV 服务支持 `PROPFIND` / `PUT` / `MKCOL`（坚果云等标准 WebDAV 可用）；「全部配置」导入会用备份中的设置覆盖本机同节设置（本机同步口令与 WebDAV 账号除外）
+- 同步备份内的连接密码、私钥等敏感字段以明文封装在加密包里，请使用足够强的同步口令并妥善保管备份文件
 - 自动更新仅在打包版本中生效，`pnpm dev` 下会跳过

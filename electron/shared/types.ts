@@ -213,6 +213,48 @@ export interface SyncSettings {
   webdav: WebDavSettings
 }
 
+/** 终端工具栏可配置按钮 */
+export type ToolbarItemId = 'ai' | 'docker' | 'cron' | 'monitor' | 'system' | 'sftp'
+
+/** 终端工具栏按钮状态 */
+export interface ToolbarItemState {
+  id: ToolbarItemId
+  enabled: boolean
+}
+
+/** 终端工具栏设置（items 顺序即渲染顺序） */
+export interface ToolbarSettings {
+  items: ToolbarItemState[]
+}
+
+export const DEFAULT_TOOLBAR_ITEMS: ToolbarItemState[] = [
+  { id: 'ai', enabled: true },
+  { id: 'docker', enabled: true },
+  { id: 'cron', enabled: true },
+  { id: 'monitor', enabled: true },
+  { id: 'system', enabled: true },
+  { id: 'sftp', enabled: true },
+]
+
+/** 归一化工具栏配置：过滤未知/重复 id，补齐缺失项（默认启用） */
+export function normalizeToolbarSettings(
+  toolbar?: Partial<ToolbarSettings> | null,
+): ToolbarSettings {
+  const known = new Set<ToolbarItemId>(DEFAULT_TOOLBAR_ITEMS.map(i => i.id))
+  const seen = new Set<ToolbarItemId>()
+  const items: ToolbarItemState[] = []
+  for (const it of toolbar?.items ?? []) {
+    const id = it?.id as ToolbarItemId
+    if (!known.has(id) || seen.has(id)) continue
+    seen.add(id)
+    items.push({ id, enabled: it.enabled !== false })
+  }
+  for (const def of DEFAULT_TOOLBAR_ITEMS) {
+    if (!seen.has(def.id)) items.push({ ...def })
+  }
+  return { items }
+}
+
 /** 应用设置 */
 export interface AppSettings {
   language: Language
@@ -222,6 +264,7 @@ export interface AppSettings {
   /** 自动检查更新 */
   autoUpdate: boolean
   terminal: TerminalSettings
+  toolbar: ToolbarSettings
   ssh: SshSettings
   ai: AiSettings
   sync: SyncSettings
@@ -436,6 +479,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
     scrollback: 5000,
     bellStyle: 'none',
     editorMaxSizeMB: 2,
+  },
+  toolbar: {
+    items: DEFAULT_TOOLBAR_ITEMS.map(i => ({ ...i })),
   },
   ssh: {
     keepaliveInterval: 30,

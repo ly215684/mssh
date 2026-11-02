@@ -1,4 +1,15 @@
-import { Bot, CheckCircle2, Cloud, FolderOpen, Globe, Server, SquareTerminal, XCircle } from 'lucide-react'
+import {
+  Bot,
+  CheckCircle2,
+  Cloud,
+  FolderOpen,
+  Globe,
+  GripVertical,
+  Server,
+  SlidersHorizontal,
+  SquareTerminal,
+  XCircle,
+} from 'lucide-react'
 import { useAppStore } from '../../stores/appStore'
 import { useConnStore } from '../../stores/connStore'
 import { useUiStore } from '../../stores/uiStore'
@@ -7,13 +18,16 @@ import { Button, Input, PasswordInput, message, confirm, Modal, Segmented, Selec
 import { useState } from 'react'
 import {
   AI_PROVIDER_PRESETS,
+  normalizeToolbarSettings,
   type AiErrorCode,
   type AiProviderId,
   type AllConfig,
   type SyncScope,
+  type ToolbarItemId,
 } from '../../../electron/shared/types'
+import { TOOLBAR_META } from '../terminal/toolbarMeta'
 
-type SettingsTab = 'general' | 'terminal' | 'ssh' | 'ai' | 'sync'
+type SettingsTab = 'general' | 'terminal' | 'toolbar' | 'ssh' | 'ai' | 'sync'
 type SyncAction = 'export' | 'import' | 'test' | 'upload' | 'download'
 
 /** 网络类错误转本地化排查提示；http/parse 等直接展示服务端原文 */
@@ -43,10 +57,13 @@ export function SettingsModal() {
   const setOpen = useUiStore(s => s.setSettingsOpen)
   const settings = useAppStore(s => s.settings)
   const dataDir = useAppStore(s => s.dataDir)
-  const { setSettings, setLanguage, setTerminal, setSsh, setAi, setSync, setWebdav } =
+  const { setSettings, setLanguage, setTerminal, setToolbar, setSsh, setAi, setSync, setWebdav } =
     useAppStore.getState()
 
   const [tab, setTab] = useState<SettingsTab>('general')
+  /** 工具栏拖拽中的行索引与目标行索引 */
+  const [dragIndex, setDragIndex] = useState<number | null>(null)
+  const [overIndex, setOverIndex] = useState<number | null>(null)
   /** 同步操作进行状态（同一时间只允许一个） */
   const [syncBusy, setSyncBusy] = useState<SyncAction | null>(null)
   /** 同步范围：全部配置 / 仅连接列表（连接列表使用独立备份文件） */
@@ -190,6 +207,23 @@ export function SettingsModal() {
     const n = parseInt(v, 10)
     return Number.isNaN(n) ? fallback : n
   }
+
+  /** 工具栏配置（归一化后展示，避免旧配置缺项） */
+  const toolbarItems = normalizeToolbarSettings(settings.toolbar).items
+
+  /** 拖拽排序：移动后立即写回设置 */
+  function moveToolbarItem(from: number, to: number) {
+    if (from === to) return
+    const next = [...toolbarItems]
+    const [moved] = next.splice(from, 1)
+    next.splice(to, 0, moved)
+    setToolbar({ items: next })
+  }
+
+  function toggleToolbarItem(id: ToolbarItemId, enabled: boolean) {
+    setToolbar({ items: toolbarItems.map(it => (it.id === id ? { ...it, enabled } : it)) })
+  }
+
   const Row = ({ label, desc, children }: { label: string; desc?: string; children: React.ReactNode }) => (
     <div className="flex items-center justify-between gap-6 py-3">
       <div className="min-w-0">
@@ -211,6 +245,7 @@ export function SettingsModal() {
             items={[
               { key: 'general', label: t('settings.general'), icon: <Globe size={15} /> },
               { key: 'terminal', label: t('settings.terminal'), icon: <SquareTerminal size={15} /> },
+              { key: 'toolbar', label: t('settings.toolbar'), icon: <SlidersHorizontal size={15} /> },
               { key: 'ssh', label: t('settings.ssh'), icon: <Server size={15} /> },
               { key: 'ai', label: t('settings.ai'), icon: <Bot size={15} /> },
               { key: 'sync', label: t('settings.sync'), icon: <Cloud size={15} /> },
@@ -302,6 +337,60 @@ export function SettingsModal() {
                   onChange={v => setTerminal({ bellStyle: v ? 'sound' : 'none' })}
                 />
               </Row>
+            </div>
+          )}
+
+          {tab === 'toolbar' && (
+            <div>
+              <p className="text-xs text-faint leading-relaxed pb-3">{t('settings.toolbarDesc')}</p>
+              <div className="divide-y divide-bd/60">
+                {toolbarItems.map((it, i) => {
+                  const meta = TOOLBAR_META[it.id]
+                  return (
+                    <div
+                      key={it.id}
+                      draggable
+                      onDragStart={e => {
+                        setDragIndex(i)
+                        e.dataTransfer.effectAllowed = 'move'
+                        e.dataTransfer.setData('text/plain', it.id)
+                      }}
+                      onDragOver={e => {
+                        e.preventDefault()
+                        e.dataTransfer.dropEffect = 'move'
+                        setOverIndex(i)
+                      }}
+                      onDrop={e => {
+                        e.preventDefault()
+                        if (dragIndex !== null) moveToolbarItem(dragIndex, i)
+                        setDragIndex(null)
+                        setOverIndex(null)
+                      }}
+                      onDragEnd={() => {
+                        setDragIndex(null)
+                        setOverIndex(null)
+                      }}
+                      className={`flex items-center gap-2.5 py-2.5 px-2 -mx-2 rounded-md cursor-grab transition-colors ${
+                        dragIndex === i ? 'opacity-40' : 'hover:bg-hover'
+                      } ${overIndex === i && dragIndex !== i ? 'bg-accent-dim' : ''}`}
+                    >
+                      <GripVertical size={14} className="text-faint shrink-0" />
+                      <meta.icon size={15} className="text-dim shrink-0" />
+                      <div className="min-w-0 flex-1">
+                        <div className="text-[13px] text-fg">{t(meta.labelKey)}</div>
+                        <div className="text-xs text-faint mt-0.5">{t(meta.descKey)}</div>
+                      </div>
+                      <Switch checked={it.enabled} onChange={v => toggleToolbarItem(it.id, v)} />
+                    </div>
+                  )
+                })}
+              </div>
+              <div className="mt-3 text-xs text-faint leading-relaxed">
+                {t('settings.toolbar.telnetHint')}
+              </div>
+              <div className="mt-1 text-xs text-faint leading-relaxed">
+                {t('settings.toolbar.disconnectHint')}
+              </div>
             </div>
           )}
 

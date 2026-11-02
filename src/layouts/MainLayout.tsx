@@ -4,6 +4,8 @@ import { TitleBar } from './TitleBar'
 import { Sidebar } from './Sidebar'
 import { TabBar } from './TabBar'
 import { StatusBar } from './StatusBar'
+import { DEFAULT_TOOLBAR_ITEMS } from '../../electron/shared/types'
+import { useAppStore } from '../stores/appStore'
 import { useSessionStore } from '../stores/sessionStore'
 import { useUiStore } from '../stores/uiStore'
 import { useT } from '../i18n/I18nProvider'
@@ -60,6 +62,9 @@ export function MainLayout() {
   const activeTab = useSessionStore(s => s.tabs.find(x => x.id === s.activeTabId))
   const openNewConn = useUiStore(s => s.openNewConn)
   const setQuickConnOpen = useUiStore(s => s.setQuickConnOpen)
+  const aiEnabled = useAppStore(s =>
+    (s.settings.toolbar?.items ?? DEFAULT_TOOLBAR_ITEMS).some(i => i.id === 'ai' && i.enabled),
+  )
 
   return (
     <div className="flex flex-col h-screen bg-bg text-fg">
@@ -88,8 +93,8 @@ export function MainLayout() {
             ) : (
               <Welcome onQuick={() => setQuickConnOpen(true)} onNew={() => openNewConn()} />
             )}
-            {/* AI 助手：仅在 SSH 终端页悬浮于右侧，不占用标签 */}
-            {activeTab?.type === 'terminal' && <AiFloatingPanel />}
+            {/* AI 助手：仅在 SSH 终端页悬浮于右侧，不占用标签；工具栏关闭 AI 入口时不渲染 */}
+            {activeTab?.type === 'terminal' && aiEnabled && <AiFloatingPanel />}
           </div>
           <StatusBar />
         </main>

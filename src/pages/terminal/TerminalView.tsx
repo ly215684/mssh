@@ -1,19 +1,24 @@
+import { Power } from 'lucide-react'
+import type { ReactNode } from 'react'
 import {
-  Activity,
-  ArrowUpDown,
-  Bot,
-  CalendarClock,
-  Container,
-  Power,
-  Server,
-} from 'lucide-react'
-import type { SessionTab } from '../../../electron/shared/types'
+  DEFAULT_TOOLBAR_ITEMS,
+  type SessionTab,
+  type ToolbarItemId,
+} from '../../../electron/shared/types'
+import { useAppStore } from '../../stores/appStore'
 import { useConnStore } from '../../stores/connStore'
 import { useSessionStore, SSH_RETRY_MAX_ATTEMPTS } from '../../stores/sessionStore'
 import { useUiStore } from '../../stores/uiStore'
 import { useT } from '../../i18n/I18nProvider'
 import { Term } from './Terminal'
+import { TOOLBAR_META } from './toolbarMeta'
 import { Spinner, Tooltip } from '../../components/ui'
+
+/** Telnet 连接不支持的工具栏按钮 */
+const TELNET_HIDDEN = new Set<ToolbarItemId>(['docker', 'cron', 'monitor', 'system', 'sftp'])
+
+const BTN_CLASS =
+  'size-7 flex items-center justify-center rounded-md transition-colors'
 
 /** 终端标签页：连接信息工具行 + xterm 终端 + 断线重连（参照设计图） */
 export function TerminalView({ tab }: { tab: SessionTab }) {
@@ -30,13 +35,60 @@ export function TerminalView({ tab }: { tab: SessionTab }) {
   const disconnect = useSessionStore(s => s.disconnect)
   const aiPanelOpen = useUiStore(s => s.aiPanelOpen)
   const toggleAiPanel = useUiStore(s => s.toggleAiPanel)
+  const toolbarItems = useAppStore(s => s.settings.toolbar?.items) ?? DEFAULT_TOOLBAR_ITEMS
 
   if (!conn) return null
 
   const status = connSession?.status
   const sessionId = connSession?.sshSessionId ?? null
-  // Telnet 无 SFTP/Docker/Cron 能力，隐藏相关入口
   const isTelnet = conn.protocol === 'telnet'
+
+  /** 可配置按钮的动作表 */
+  const actions: Record<
+    ToolbarItemId,
+    { label: string; icon: ReactNode; className: string; onClick: () => void }
+  > = {
+    ai: {
+      label: t('term.ai'),
+      icon: <TOOLBAR_META.ai.icon size={15} />,
+      className: aiPanelOpen ? 'bg-accent-dim text-accent' : '',
+      onClick: () => toggleAiPanel(),
+    },
+    docker: {
+      label: t('term.docker'),
+      icon: <TOOLBAR_META.docker.icon size={15} />,
+      className: '',
+      onClick: () => openDocker(tab.connectionId),
+    },
+    cron: {
+      label: t('term.cron'),
+      icon: <TOOLBAR_META.cron.icon size={15} />,
+      className: '',
+      onClick: () => openCron(tab.connectionId),
+    },
+    monitor: {
+      label: t('term.monitor'),
+      icon: <TOOLBAR_META.monitor.icon size={15} />,
+      className: '',
+      onClick: () => openMonitor(tab.connectionId),
+    },
+    system: {
+      label: t('term.system'),
+      icon: <TOOLBAR_META.system.icon size={15} />,
+      className: '',
+      onClick: () => openSystem(tab.connectionId),
+    },
+    sftp: {
+      label: t('term.transfer'),
+      icon: <TOOLBAR_META.sftp.icon size={15} />,
+      className: '',
+      onClick: () => openSftp(tab.connectionId),
+    },
+  }
+
+  const visibleItems = toolbarItems.filter(
+    it => it.enabled && (!isTelnet || !TELNET_HIDDEN.has(it.id)),
+  )
 
   return (
     <div className="flex flex-col h-full bg-bg">
@@ -51,66 +103,23 @@ export function TerminalView({ tab }: { tab: SessionTab }) {
           <span className={conn.username ? '' : 'text-accent'}>{conn.host}</span>:{conn.port}
         </span>
         <div className="flex-1" />
-        <Tooltip placement="bottom" label={t('term.ai')}>
-          <button
-            onClick={() => toggleAiPanel()}
-            className={`size-7 flex items-center justify-center rounded-md transition-colors ${
-              aiPanelOpen
-                ? 'bg-accent-dim text-accent'
-                : 'text-dim hover:text-accent hover:bg-accent-dim'
-            }`}
-          >
-            <Bot size={15} />
-          </button>
-        </Tooltip>
-        {!isTelnet && (
-          <>
-            <Tooltip placement="bottom" label={t('term.docker')}>
+        {visibleItems.map(it => {
+          const action = actions[it.id]
+          return (
+            <Tooltip key={it.id} placement="bottom" label={action.label}>
               <button
-                onClick={() => openDocker(tab.connectionId)}
-                className="size-7 flex items-center justify-center rounded-md text-dim hover:text-accent hover:bg-accent-dim transition-colors"
+                onClick={action.onClick}
+                className={`${BTN_CLASS} text-dim hover:text-accent hover:bg-accent-dim ${action.className}`}
               >
-                <Container size={15} />
+                {action.icon}
               </button>
             </Tooltip>
-            <Tooltip placement="bottom" label={t('term.cron')}>
-              <button
-                onClick={() => openCron(tab.connectionId)}
-                className="size-7 flex items-center justify-center rounded-md text-dim hover:text-accent hover:bg-accent-dim transition-colors"
-              >
-                <CalendarClock size={15} />
-              </button>
-            </Tooltip>
-            <Tooltip placement="bottom" label={t('term.monitor')}>
-              <button
-                onClick={() => openMonitor(tab.connectionId)}
-                className="size-7 flex items-center justify-center rounded-md text-dim hover:text-accent hover:bg-accent-dim transition-colors"
-              >
-                <Activity size={15} />
-              </button>
-            </Tooltip>
-            <Tooltip placement="bottom" label={t('term.system')}>
-              <button
-                onClick={() => openSystem(tab.connectionId)}
-                className="size-7 flex items-center justify-center rounded-md text-dim hover:text-accent hover:bg-accent-dim transition-colors"
-              >
-                <Server size={15} />
-              </button>
-            </Tooltip>
-            <Tooltip placement="bottom" label={t('term.transfer')}>
-              <button
-                onClick={() => openSftp(tab.connectionId)}
-                className="size-7 flex items-center justify-center rounded-md text-dim hover:text-fg hover:bg-hover transition-colors"
-              >
-                <ArrowUpDown size={15} />
-              </button>
-            </Tooltip>
-          </>
-        )}
+          )
+        })}
         <Tooltip placement="bottom" label={t('term.disconnect')}>
           <button
             onClick={() => disconnect(tab.connectionId)}
-            className="size-7 flex items-center justify-center rounded-md text-dim hover:text-danger hover:bg-danger/10 transition-colors"
+            className={`${BTN_CLASS} text-dim hover:text-danger hover:bg-danger/10`}
           >
             <Power size={15} />
           </button>

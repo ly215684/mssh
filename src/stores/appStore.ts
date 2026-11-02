@@ -7,6 +7,7 @@ import type {
   SyncSettings,
   TerminalSettings,
   ThemeMode,
+  ToolbarSettings,
   WebDavSettings,
 } from '../../electron/shared/types'
 import { DEFAULT_SETTINGS } from '../../electron/shared/types'
@@ -20,6 +21,7 @@ interface AppState {
   setTheme: (t: ThemeMode) => void
   setLanguage: (l: Language) => void
   setTerminal: (patch: Partial<TerminalSettings>) => void
+  setToolbar: (patch: Partial<ToolbarSettings>) => void
   setSsh: (patch: Partial<SshSettings>) => void
   setAi: (patch: Partial<AiSettings>) => void
   setSync: (patch: Partial<SyncSettings>) => void
@@ -52,6 +54,15 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setSsh: patch => {
     const settings = { ...get().settings, ssh: { ...get().settings.ssh, ...patch } }
+    set({ settings })
+    window.api.saveSettings(settings)
+  },
+
+  setToolbar: patch => {
+    const settings = {
+      ...get().settings,
+      toolbar: { ...get().settings.toolbar, ...patch },
+    }
     set({ settings })
     window.api.saveSettings(settings)
   },

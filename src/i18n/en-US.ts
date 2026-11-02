@@ -449,6 +449,19 @@ export default {
   'settings.bellSound': 'Sound',
   'settings.editorMaxSize': 'Editor file limit (MB)',
   'settings.editorMaxSizeDesc': 'Maximum file size the remote text editor can open; files larger than this will be rejected',
+  'settings.toolbar': 'Toolbar',
+  'settings.toolbarDesc':
+    'Customize which terminal toolbar buttons are shown and their order. Drag the handle on the left to reorder.',
+  'settings.toolbar.aiDesc': 'Open the AI assistant panel beside the terminal',
+  'settings.toolbar.dockerDesc': 'Manage remote Docker containers and images',
+  'settings.toolbar.cronDesc': "Manage the current user's crontab scheduled tasks",
+  'settings.toolbar.monitorDesc': 'Watch CPU, memory, disk and processes in real time',
+  'settings.toolbar.systemDesc': 'Manage systemd services, packages and firewall',
+  'settings.toolbar.sftpDesc': 'Open the dual-pane file manager and transfer panel',
+  'settings.toolbar.telnetHint':
+    'Telnet connections do not support Docker, Scheduled Tasks, Monitor, System or File Transfer; those buttons only appear for SSH connections.',
+  'settings.toolbar.disconnectHint':
+    'The Disconnect button is always shown at the far right and is not customizable.',
   'settings.keepalive': 'Keep-alive interval (s)',
   'settings.keepaliveDesc': 'Sends periodic probes on idle connections to keep NAT/firewalls from dropping the link; 0 disables (not recommended)',
   'settings.timeout': 'Connect timeout (s)',

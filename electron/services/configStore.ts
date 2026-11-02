@@ -11,7 +11,7 @@ import type {
   SyncData,
   SyncScope,
 } from '../shared/types'
-import { DEFAULT_SETTINGS } from '../shared/types'
+import { DEFAULT_SETTINGS, normalizeToolbarSettings } from '../shared/types'
 
 /** 数据目录：~/.ssh-hub/（与设置页展示一致） */
 export const DATA_DIR = path.join(app.getPath('home'), '.ssh-hub')
@@ -70,6 +70,7 @@ function defaultSettings(): AppSettings {
   return {
     ...DEFAULT_SETTINGS,
     terminal: { ...DEFAULT_SETTINGS.terminal },
+    toolbar: normalizeToolbarSettings(),
     ssh: { ...DEFAULT_SETTINGS.ssh },
     ai: { ...DEFAULT_SETTINGS.ai },
     sync: { ...DEFAULT_SETTINGS.sync, webdav: { ...DEFAULT_SETTINGS.sync.webdav } },
@@ -86,6 +87,7 @@ function readConfig(): StoredConfig {
       ...defaultSettings(),
       ...parsed.settings,
       terminal: { ...DEFAULT_SETTINGS.terminal, ...parsed.settings?.terminal },
+      toolbar: normalizeToolbarSettings(parsed.settings?.toolbar),
       ssh: { ...DEFAULT_SETTINGS.ssh, ...parsed.settings?.ssh },
       ai: { ...DEFAULT_SETTINGS.ai, ...parsed.settings?.ai },
       sync: {
@@ -252,6 +254,7 @@ export function applySyncData(data: SyncData): AllConfig {
       ...base,
       ...imported,
       terminal: { ...base.terminal, ...imported.terminal },
+      toolbar: normalizeToolbarSettings(imported.toolbar),
       ssh: { ...base.ssh, ...imported.ssh },
       ai: { ...base.ai, ...imported.ai },
       sync: local.settings.sync,

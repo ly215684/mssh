@@ -1,5 +1,14 @@
 import { execCommand } from './sshService'
 import { list, readFile, writeFile } from './sftpService'
+import {
+  INTERACTIVE_KEY_NAMES,
+  closeInteractive,
+  readInteractive,
+  sendInteractive,
+  startInteractive,
+  type InteractiveMode,
+  type InteractiveReadResult,
+} from './interactiveService'
 
 /**
  * 轻量 MCP（Model Context Protocol）服务：
@@ -94,6 +103,91 @@ export const MCP_TOOLS: McpTool[] = [
     },
     needsApproval: true,
   },
+  {
+    name: 'start_interactive_session',
+    description:
+      '在远程服务器上启动一条需要持续输入的命令（如 sudo 密码提示、apt 确认、read -p、mysql/redis REPL、top/vim 等全屏程序），' +
+      '返回 sessionId 与初始输出。后续用 send_interactive_input 输入、read_interactive_output 读取，用完调用 close_interactive_session。' +
+      '会话在本轮 AI 对话结束后自动关闭。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        command: { type: 'string', description: '要执行的 shell 命令' },
+        term: { type: 'string', description: '终端类型，默认 xterm-256color' },
+        cols: { type: 'number', description: '终端列数（20-300），默认 120' },
+        rows: { type: 'number', description: '终端行数（5-100），默认 40' },
+        waitMs: {
+          type: 'number',
+          description: '启动后等待初始输出的最长时间（毫秒，0-15000），默认 800',
+        },
+      },
+      required: ['command'],
+      additionalProperties: false,
+    },
+    needsApproval: true,
+  },
+  {
+    name: 'send_interactive_input',
+    description:
+      '向已启动的交互式会话写入文本或按键（如回车、Ctrl+C、方向键），返回自上次读取以来的新增输出。' +
+      '每次输入都会单独展示给用户确认。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        sessionId: { type: 'string', description: 'start_interactive_session 返回的会话 id' },
+        text: { type: 'string', description: '按原样写入的文本（可为空）' },
+        keys: {
+          type: 'array',
+          items: { type: 'string', enum: INTERACTIVE_KEY_NAMES },
+          description: '要发送的按键（可多选），与 text 按顺序拼接后写入',
+        },
+        waitMs: {
+          type: 'number',
+          description: '写入后等待输出的最长时间（毫秒，0-10000），默认 800',
+        },
+      },
+      required: ['sessionId'],
+      additionalProperties: false,
+    },
+    needsApproval: true,
+  },
+  {
+    name: 'read_interactive_output',
+    description:
+      '读取交互式会话的输出。mode=delta（默认）返回自上次读取以来的新增文本；' +
+      'mode=screen 返回当前屏幕的纯文本快照，适合 top / vim 等全屏程序。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        sessionId: { type: 'string', description: '交互式会话 id' },
+        mode: {
+          type: 'string',
+          enum: ['delta', 'screen'],
+          description: 'delta=新增输出；screen=当前屏幕快照',
+        },
+        waitMs: {
+          type: 'number',
+          description: '读取前等待新输出的最长时间（毫秒，0-15000），默认 0',
+        },
+      },
+      required: ['sessionId'],
+      additionalProperties: false,
+    },
+    needsApproval: false,
+  },
+  {
+    name: 'close_interactive_session',
+    description: '关闭交互式会话（先发送 Ctrl+C，再终止通道），返回关闭前的最终输出。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        sessionId: { type: 'string', description: '要关闭的交互式会话 id' },
+      },
+      required: ['sessionId'],
+      additionalProperties: false,
+    },
+    needsApproval: true,
+  },
 ]
 
 export interface McpServerContext {
@@ -145,12 +239,30 @@ function strArg(args: Record<string, unknown>, key: string): string {
   return v
 }
 
+/** 交互式会话状态描述 */
+function interactiveStatus(r: InteractiveReadResult): string {
+  return r.running ? '运行中' : `已结束（退出码 ${r.exitCode ?? '未知'}）`
+}
+
+/** 交互式会话输出文本（delta / screen 通用） */
+function formatInteractiveOutput(r: InteractiveReadResult): string {
+  if (r.mode === 'screen') {
+    return `会话 ${r.id}（${interactiveStatus(r)}）\n屏幕快照:\n${r.output.trim() || '（空屏幕）'}`
+  }
+  const parts = [
+    `会话 ${r.id}（${interactiveStatus(r)}）`,
+    `新增输出:\n${r.output.trim() || '（无新增输出）'}`,
+  ]
+  if (r.truncated) parts.push('（输出过长，仅保留最近部分）')
+  return parts.join('\n')
+}
+
 /** 执行工具，返回给模型的文本与是否为错误 */
 async function executeTool(
   ctx: McpServerContext,
   name: string,
   args: Record<string, unknown>,
-): Promise<{ text: string; isError: boolean }> {
+): Promise<{ text: string; isError: boolean; sessionId?: string }> {
   if (name === 'run_command') {
     const command = strArg(args, 'command').trim()
     const seconds = Math.max(1, Math.min(300, Number(args.timeout) || 60))
@@ -202,12 +314,72 @@ async function executeTool(
     }
   }
 
+  if (name === 'start_interactive_session') {
+    const command = strArg(args, 'command').trim()
+    const r = await startInteractive(ctx.sessionId, command, {
+      term: typeof args.term === 'string' ? args.term : undefined,
+      cols: typeof args.cols === 'number' ? args.cols : undefined,
+      rows: typeof args.rows === 'number' ? args.rows : undefined,
+      waitMs: typeof args.waitMs === 'number' ? args.waitMs : 800,
+    })
+    const parts = [
+      '会话已启动',
+      `sessionId: ${r.id}`,
+      `命令: ${command}`,
+      `状态: ${interactiveStatus(r)}`,
+      `初始输出:\n${r.output.trim() || '（暂无输出）'}`,
+    ]
+    if (r.truncated) parts.push('（输出过长，仅保留最近部分）')
+    return { text: truncate(parts.join('\n')), isError: false, sessionId: r.id }
+  }
+
+  if (name === 'send_interactive_input') {
+    const sessionId = strArg(args, 'sessionId')
+    const text = typeof args.text === 'string' ? args.text : ''
+    const keys = Array.isArray(args.keys)
+      ? args.keys.filter((k): k is string => typeof k === 'string')
+      : []
+    if (!text && keys.length === 0) throw new Error('参数 text 与 keys 至少需要提供一个')
+    const waitMs = typeof args.waitMs === 'number' ? args.waitMs : 800
+    const r = await sendInteractive(sessionId, text, keys, waitMs)
+    return { text: truncate(formatInteractiveOutput(r)), isError: false }
+  }
+
+  if (name === 'read_interactive_output') {
+    const sessionId = strArg(args, 'sessionId')
+    const mode: InteractiveMode = args.mode === 'screen' ? 'screen' : 'delta'
+    const waitMs = typeof args.waitMs === 'number' ? args.waitMs : 0
+    const r = await readInteractive(sessionId, waitMs, mode)
+    return { text: truncate(formatInteractiveOutput(r)), isError: false }
+  }
+
+  if (name === 'close_interactive_session') {
+    const sessionId = strArg(args, 'sessionId')
+    const r = await closeInteractive(sessionId)
+    const parts = [
+      `会话 ${r.id} 已关闭`,
+      `退出码: ${r.exitCode ?? '未知'}`,
+      `最终输出:\n${r.output.trim() || '（无输出）'}`,
+    ]
+    return { text: truncate(parts.join('\n')), isError: false }
+  }
+
   throw new Error(`未知工具：${name}`)
 }
 
 /** MCP 服务端：处理 JSON-RPC 请求（同一进程内由 McpClient 调用） */
 export class McpServer {
+  /** 本实例创建的交互式会话 id，请求结束时统一关闭 */
+  private readonly interactiveIds = new Set<string>()
+
   constructor(private readonly ctx: McpServerContext) {}
+
+  /** 关闭本实例创建的交互式会话（AI 请求结束 / 中止时调用） */
+  async dispose(): Promise<void> {
+    const ids = [...this.interactiveIds]
+    this.interactiveIds.clear()
+    await Promise.allSettled(ids.map(id => closeInteractive(id).catch(() => undefined)))
+  }
 
   /** 处理一条 JSON-RPC 消息；通知（无 id）返回 null */
   async handle(req: JsonRpcRequest): Promise<JsonRpcResponse | null> {
@@ -251,6 +423,7 @@ export class McpServer {
             : {}
         try {
           const r = await executeTool(this.ctx, name, args)
+          if (r.sessionId) this.interactiveIds.add(r.sessionId)
           return {
             jsonrpc: '2.0',
             id,

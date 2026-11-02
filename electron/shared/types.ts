@@ -89,6 +89,9 @@ export type AiProviderId =
 /** AI 助手交互模式：chat=仅对话；agent=可通过 MCP 工具操作当前服务器 */
 export type AiMode = 'chat' | 'agent'
 
+/** 代理模式工具审批策略：manual=逐次确认；auto=自动执行 */
+export type AiApprovalMode = 'manual' | 'auto'
+
 /** AI 大模型设置（apiKey 由 configStore 加密落盘） */
 export interface AiSettings {
   provider: AiProviderId
@@ -102,6 +105,8 @@ export interface AiSettings {
   systemPrompt: string
   /** 交互模式（默认对话模式） */
   mode: AiMode
+  /** 代理模式审批策略（默认手动审批） */
+  approvalMode: AiApprovalMode
 }
 
 /** 模型返回的工具调用（OpenAI 兼容结构，作为历史消息回传） */
@@ -498,6 +503,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     baseUrl: 'https://api.deepseek.com/v1',
     model: 'deepseek-chat',
     mode: 'chat',
+    approvalMode: 'manual',
     systemPrompt:
       '你是一名经验丰富的 Linux 运维与开发专家，内置在 SSH 客户端 mssh 中。' +
       '请简洁、准确地回答问题；涉及命令时优先给出可直接复制执行的代码块，' +

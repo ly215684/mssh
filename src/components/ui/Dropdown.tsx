@@ -18,12 +18,28 @@ interface MenuPanelProps {
   onPick: (key: string) => void
   align?: 'start' | 'end'
   minWidth?: number
+  /** 视为浮层内部的元素（如触发按钮） */
+  ignore?: HTMLElement | null
 }
 
 /** 菜单面板（Dropdown 与 ContextMenu 共用） */
-export function MenuPanel({ anchor, items, onClose, onPick, align = 'start', minWidth = 140 }: MenuPanelProps) {
+export function MenuPanel({
+  anchor,
+  items,
+  onClose,
+  onPick,
+  align = 'start',
+  minWidth = 140,
+  ignore,
+}: MenuPanelProps) {
   return (
-    <Floating anchor={anchor} onClose={onClose} align={align} minWidth={minWidth}>
+    <Floating
+      anchor={anchor}
+      onClose={onClose}
+      align={align}
+      minWidth={minWidth}
+      ignore={ignore}
+    >
       <div className="bg-elevated border border-bd rounded-md shadow-pop py-1">
         {items.map(it =>
           it.divider ? (
@@ -62,22 +78,25 @@ export function Dropdown({ items, onPick, children, align = 'start', className =
   const wrapRef = useRef<HTMLSpanElement>(null)
 
   return (
-    <span
-      ref={wrapRef}
-      className={`inline-flex ${className}`}
-      onClick={e => {
-        e.stopPropagation()
-        if (!wrapRef.current) return
-        setAnchor(wrapRef.current.getBoundingClientRect())
-        setOpen(o => !o)
-      }}
-    >
-      {children}
+    <span ref={wrapRef} className={`inline-flex ${className}`}>
+      {/* 触发器单独包裹：避免菜单项点击经 portal 冒泡回此处又触发开合切换 */}
+      <span
+        className="inline-flex"
+        onClick={e => {
+          e.stopPropagation()
+          if (!wrapRef.current) return
+          setAnchor(wrapRef.current.getBoundingClientRect())
+          setOpen(o => !o)
+        }}
+      >
+        {children}
+      </span>
       {open && anchor && (
         <MenuPanel
           anchor={anchor}
           items={items}
           align={align}
+          ignore={wrapRef.current}
           onClose={() => setOpen(false)}
           onPick={key => {
             setOpen(false)

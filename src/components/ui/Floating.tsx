@@ -19,13 +19,23 @@ interface FloatingProps {
   minWidth?: number
   /** 顶部偏移 */
   offset?: number
+  /** 视为浮层内部的元素（如触发按钮），点击它不触发外部关闭 */
+  ignore?: HTMLElement | null
 }
 
 /**
  * 全局浮层容器：portal 渲染、自动翻转（屏幕边缘）、
  * 点击外部 / Esc / 滚动时关闭。Dropdown、Select、ContextMenu 共用。
  */
-export function Floating({ anchor, onClose, children, align = 'start', minWidth, offset = 4 }: FloatingProps) {
+export function Floating({
+  anchor,
+  onClose,
+  children,
+  align = 'start',
+  minWidth,
+  offset = 4,
+  ignore,
+}: FloatingProps) {
   const ref = useRef<HTMLDivElement>(null)
   const [style, setStyle] = useState<CSSProperties>({
     position: 'fixed',
@@ -55,7 +65,10 @@ export function Floating({ anchor, onClose, children, align = 'start', minWidth,
 
   useEffect(() => {
     const onDocClick = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) onClose()
+      const target = e.target as Node
+      // 点击触发元素不算“外部点击”，避免与触发器的开合切换互相抵消
+      if (ignore?.contains(target)) return
+      if (ref.current && !ref.current.contains(target)) onClose()
     }
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
@@ -71,7 +84,7 @@ export function Floating({ anchor, onClose, children, align = 'start', minWidth,
       window.removeEventListener('scroll', onScroll, true)
       window.removeEventListener('resize', onScroll)
     }
-  }, [onClose])
+  }, [onClose, ignore])
 
   return createPortal(
     <div ref={ref} style={style} className="animate-msg-in">

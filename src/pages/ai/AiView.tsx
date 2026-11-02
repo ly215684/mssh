@@ -7,14 +7,20 @@ import {
   ChevronDown,
   Clock,
   Copy,
+  CornerDownLeft,
+  Eye,
   FileText,
   FolderOpen,
+  MessageSquare,
   MessageSquarePlus,
   PenLine,
+  Play,
   Plus,
   RotateCcw,
   Send,
   Settings as SettingsIcon,
+  ShieldAlert,
+  ShieldCheck,
   Square,
   Terminal,
   Trash2,
@@ -29,9 +35,15 @@ import { useSessionStore } from '../../stores/sessionStore'
 import { useUiStore } from '../../stores/uiStore'
 import { useT } from '../../i18n/I18nProvider'
 import type { DictKey } from '../../i18n/zh-CN'
-import type { AiAgentContext, AiToolCall } from '../../../electron/shared/types'
+import type {
+  AiAgentContext,
+  AiApprovalMode,
+  AiMode,
+  AiToolCall,
+} from '../../../electron/shared/types'
 import { Markdown } from './Markdown'
-import { Button, Spinner, Tooltip, confirm, message } from '../../components/ui'
+import type { MenuItem } from '../../components/ui'
+import { Button, Dropdown, Spinner, Tooltip, confirm, message } from '../../components/ui'
 
 /** MCP 工具展示元信息（标题与图标） */
 const TOOL_META: Record<string, { label: DictKey; icon: LucideIcon }> = {
@@ -39,6 +51,10 @@ const TOOL_META: Record<string, { label: DictKey; icon: LucideIcon }> = {
   read_file: { label: 'ai.toolReadFile', icon: FileText },
   list_directory: { label: 'ai.toolListDirectory', icon: FolderOpen },
   write_file: { label: 'ai.toolWriteFile', icon: PenLine },
+  start_interactive_session: { label: 'ai.toolStartInteractive', icon: Play },
+  send_interactive_input: { label: 'ai.toolSendInput', icon: CornerDownLeft },
+  read_interactive_output: { label: 'ai.toolReadOutput', icon: Eye },
+  close_interactive_session: { label: 'ai.toolCloseInteractive', icon: Square },
 }
 
 /** 空会话时展示的运维场景快捷提问（SSH 客户端场景） */
@@ -53,6 +69,7 @@ export function AiFloatingPanel() {
   const setPanelOpen = useUiStore(s => s.setAiPanelOpen)
   const setSettingsOpen = useUiStore(s => s.setSettingsOpen)
   const ai = useAppStore(s => s.settings.ai)
+  const setAi = useAppStore(s => s.setAi)
   const activeTab = useSessionStore(s => s.tabs.find(t => t.id === s.activeTabId))
   const connSession = useSessionStore(s =>
     activeTab ? s.connSessions[activeTab.connectionId] : undefined,
@@ -80,6 +97,7 @@ export function AiFloatingPanel() {
   const generating = activeChat?.messages.some(m => m.generating) ?? false
   const configured = Boolean(ai.apiKey.trim() && ai.baseUrl.trim() && ai.model.trim())
   const agent = ai.mode === 'agent'
+  const autoApproval = (ai.approvalMode ?? 'manual') === 'auto'
   // 代理模式只能操作当前终端所在的服务器；未连接时不允许发送
   const agentContext: AiAgentContext | undefined =
     agent && conn && connSession?.status === 'connected' && connSession.sshSessionId
@@ -91,6 +109,16 @@ export function AiFloatingPanel() {
         }
       : undefined
   const agentBlocked = agent && !agentContext
+
+  // 输入框下方：模式 / 审批下拉选项
+  const modeItems: MenuItem[] = [
+    { key: 'chat', label: t('ai.modeChat'), icon: <MessageSquare size={14} /> },
+    { key: 'agent', label: t('ai.modeAgent'), icon: <Bot size={14} /> },
+  ]
+  const approvalItems: MenuItem[] = [
+    { key: 'manual', label: t('ai.approvalManual'), icon: <ShieldCheck size={14} /> },
+    { key: 'auto', label: t('ai.approvalAuto'), icon: <ShieldAlert size={14} /> },
+  ]
 
   // 流式增量 / generating 变化时，若用户停留在底部则自动滚到底
   const lastLen = activeChat?.messages[activeChat.messages.length - 1]?.content.length ?? 0
@@ -306,7 +334,47 @@ export function AiFloatingPanel() {
             </Button>
           )}
         </div>
-        <div className="mt-1 text-center text-[11px] text-faint">{t('ai.enterHint')}</div>
+        <div className="mt-1.5 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5 shrink-0">
+            <Dropdown
+              items={modeItems}
+              onPick={key => setAi({ mode: key as AiMode })}
+              align="start"
+            >
+              <button
+                type="button"
+                className="flex items-center gap-1 h-6 pl-1.5 pr-1 rounded-md border border-bd bg-input text-[11px] text-dim hover:text-fg hover:bg-hover transition-colors"
+              >
+                {agent ? <Bot size={12} /> : <MessageSquare size={12} />}
+                <span>{t(agent ? 'ai.modeAgent' : 'ai.modeChat')}</span>
+                <ChevronDown size={12} className="opacity-70" />
+              </button>
+            </Dropdown>
+            <Dropdown
+              items={approvalItems}
+              onPick={key => {
+                if (agent) setAi({ approvalMode: key as AiApprovalMode })
+              }}
+              align="start"
+              className={agent ? '' : 'pointer-events-none opacity-40'}
+            >
+              <button
+                type="button"
+                disabled={!agent}
+                className="flex items-center gap-1 h-6 pl-1.5 pr-1 rounded-md border border-bd bg-input text-[11px] text-dim hover:text-fg hover:bg-hover transition-colors disabled:cursor-not-allowed"
+              >
+                {autoApproval ? (
+                  <ShieldAlert size={12} className="text-warning" />
+                ) : (
+                  <ShieldCheck size={12} />
+                )}
+                <span>{t(autoApproval ? 'ai.approvalAuto' : 'ai.approvalManual')}</span>
+                <ChevronDown size={12} className="opacity-70" />
+              </button>
+            </Dropdown>
+          </div>
+          <span className="text-[11px] text-faint truncate">{t('ai.enterHint')}</span>
+        </div>
       </div>
     </div>
   )
@@ -506,6 +574,15 @@ function ToolCard({
   const command = typeof call.args.command === 'string' ? call.args.command : ''
   const path = typeof call.args.path === 'string' ? call.args.path : ''
   const content = typeof call.args.content === 'string' ? call.args.content : ''
+  const sessionId = typeof call.args.sessionId === 'string' ? call.args.sessionId : ''
+  const inputText = typeof call.args.text === 'string' ? call.args.text : ''
+  const keys = Array.isArray(call.args.keys)
+    ? call.args.keys.filter((k): k is string => typeof k === 'string')
+    : []
+  const mode = typeof call.args.mode === 'string' ? call.args.mode : ''
+  const waitMs = typeof call.args.waitMs === 'number' ? call.args.waitMs : null
+  const hasPathTool =
+    call.name === 'read_file' || call.name === 'list_directory' || call.name === 'write_file'
   const awaiting = call.status === 'pending' && call.needsApproval
 
   return (
@@ -521,12 +598,60 @@ function ToolCard({
       </div>
 
       <div className="px-2.5 py-2 space-y-1.5">
-        {call.name === 'run_command' ? (
+        {command && (
           <pre className="max-h-32 overflow-auto rounded border border-bd bg-term-bg px-2 py-1.5 text-[11.5px] leading-relaxed text-term-fg whitespace-pre-wrap break-words selectable">
             <span className="text-accent select-none">$ </span>
-            {command || t('ai.toolNoArgs')}
+            {command}
           </pre>
-        ) : (
+        )}
+
+        {!command && !path && !sessionId && !hasPathTool && (
+          <div className="text-[11.5px] text-faint">{t('ai.toolNoArgs')}</div>
+        )}
+
+        {sessionId && (
+          <div className="text-[11.5px] text-dim break-all selectable">
+            <span className="text-faint">{t('ai.toolSession')}: </span>
+            <span className="mono text-fg">{sessionId}</span>
+          </div>
+        )}
+
+        {inputText && (
+          <>
+            <div className="text-[11.5px] text-faint">{t('ai.toolInput')}:</div>
+            <pre className="max-h-28 overflow-auto rounded border border-bd bg-input px-2 py-1.5 text-[11px] leading-relaxed text-dim whitespace-pre-wrap break-words selectable">
+              {inputText.length > 2000 ? `${inputText.slice(0, 2000)}\n…` : inputText}
+            </pre>
+          </>
+        )}
+
+        {keys.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1 text-[11px]">
+            <span className="text-faint">{t('ai.toolKeys')}:</span>
+            {keys.map(k => (
+              <span
+                key={k}
+                className="mono rounded border border-bd bg-input px-1.5 py-0.5 text-fg"
+              >
+                {k}
+              </span>
+            ))}
+          </div>
+        )}
+
+        {call.name === 'read_interactive_output' && (
+          <div className="text-[11.5px] text-dim">
+            {mode && (
+              <>
+                <span className="text-faint">{t('ai.toolMode')}: </span>
+                <span className="mono text-fg">{mode}</span>
+              </>
+            )}
+            {waitMs !== null && <span className="ml-2 text-faint">waitMs: {waitMs}</span>}
+          </div>
+        )}
+
+        {(path || hasPathTool) && (
           <div className="text-[11.5px] text-dim break-all selectable">
             <span className="text-faint">{t('ai.toolPath')}: </span>
             <span className="mono text-fg">{path || '.'}</span>

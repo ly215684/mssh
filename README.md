@@ -63,7 +63,8 @@
 - **两种模式**（设置 → AI 助手切换，默认 **对话模式**；顶栏实时显示当前模式）：
   - **对话模式**：只对话、不操作服务器，仅提供建议与命令文本，可一键复制后自行执行
   - **代理模式**：AI 可调用 MCP 工具直接操作当前终端所在的服务器；**每次工具调用都弹出确认卡片，由用户点击「允许」后才会执行**，拒绝则把结果回填给模型继续对话
-- **内置 MCP 服务**：进程内实现的 JSON-RPC 2.0 服务（`initialize` / `tools/list` / `tools/call`），提供 4 个工具——`run_command`（执行命令，需确认）、`write_file`（写入文件，需确认）、`read_file`、`list_directory`；工具执行结果（退出码 / stdout / stderr / 文件内容截断）显示在工具卡片并回传给模型；工具调用轮次不设上限，直到模型不再调用工具或用户点击停止
+- **内置 MCP 服务**：进程内实现的 JSON-RPC 2.0 服务（`initialize` / `tools/list` / `tools/call`），提供 8 个工具——`run_command`（执行命令，需确认）、`write_file`（写入文件，需确认）、`read_file`、`list_directory`，以及交互式会话工具 `start_interactive_session` / `send_interactive_input` / `read_interactive_output` / `close_interactive_session`（启动、输入、读取、关闭，前两者与关闭需确认）；工具执行结果（退出码 / stdout / stderr / 文件内容截断）显示在工具卡片并回传给模型；工具调用轮次不设上限，直到模型不再调用工具或用户点击停止
+- **交互式命令**：代理模式可运行需要持续输入的命令（sudo 密码提示、apt 确认、`read -p`、mysql/redis REPL），并支持 `top` / `vim` 等全屏程序（读取当前屏幕的纯文本快照）；交互式会话仅在本轮对话内有效，本轮结束或 SSH 断开时自动关闭，单会话最多同时存在 4 个
 - 代理模式绑定当前终端会话，未连接 SSH 时禁止发送并提示先建立连接；点击「停止」会中止生成并把未决的工具调用按拒绝处理
 - **主流大模型**：内置 DeepSeek、OpenAI、Kimi（Moonshot）、通义千问、智谱 GLM、豆包（火山方舟）、硅基流动预设，也支持任意 OpenAI 兼容接口（自定义 Base URL / 模型名）
 - **流式对话**：SSE 实时输出，可随时停止、失败重试、重新生成
@@ -229,7 +230,7 @@ mssh/
 - 使用 VNC 需服务器已启动 VNC 服务（如 TigerVNC / RealVNC）并开放对应端口
 - X11 转发需要本地运行 X 服务器（Windows：VcXsrv / Xming），且服务器开启 `X11Forwarding`
 - AI 助手不内置模型额度，需自行准备兼容 OpenAI 接口的 API Key
-- AI 代理模式只能操作当前终端所在的 SSH 会话（不支持 Telnet / VNC），且需逐个确认工具调用；内置 MCP 工具仅包含命令执行与文件读写/列目录，不含交互式命令（如 `top`、`vim`）
+- AI 代理模式只能操作当前终端所在的 SSH 会话（不支持 Telnet / VNC），且需逐个确认工具调用；交互式会话仅在本轮 AI 对话内有效，`top` / `vim` 的屏幕快照为纯文本近似还原（不还原颜色与宽字符对齐）
 - 监控面板与状态栏指标依赖 Linux 的 `/proc` 与 `ps` / `df`，非 Linux 系统可能无法采集
 - 系统管理面板依赖目标系统的 systemd / 包管理器 / 防火墙工具，非 root 执行需已配置免密 `sudo`
 - 打包上传 / 下载依赖远程 `tar`（缺失时可一键安装）；断点续传仅当目标端同名文件小于源文件时生效，否则从头写入

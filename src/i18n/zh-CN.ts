@@ -316,6 +316,8 @@ export default {
   'ai.providerCustom': '自定义（OpenAI 兼容）',
   'ai.modeChat': '对话模式',
   'ai.modeAgent': '代理模式',
+  'ai.approvalManual': '手动审批',
+  'ai.approvalAuto': '自动审批',
   'ai.needSession': '代理模式需要先连接服务器：当前终端尚未建立 SSH 连接',
   'ai.agentInputPh': '描述你想在服务器上完成的操作…',
   'ai.toolRunCommand': '执行命令',
@@ -333,6 +335,14 @@ export default {
   'ai.toolNoOutput': '（无输出）',
   'ai.toolNoArgs': '（缺少命令参数）',
   'ai.toolPath': '路径',
+  'ai.toolStartInteractive': '启动交互式命令',
+  'ai.toolSendInput': '发送输入',
+  'ai.toolReadOutput': '读取输出',
+  'ai.toolCloseInteractive': '关闭交互式会话',
+  'ai.toolSession': '会话',
+  'ai.toolInput': '输入',
+  'ai.toolKeys': '按键',
+  'ai.toolMode': '模式',
 
   // 状态栏
   'status.protocol': 'SSH2',

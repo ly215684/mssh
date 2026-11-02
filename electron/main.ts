@@ -4,6 +4,7 @@ import path from 'node:path'
 import { registerAllIpc } from './ipc'
 import { initAutoUpdater } from './services/autoUpdateService'
 import { disconnectAll } from './services/sshService'
+import { closeAllInteractive } from './services/interactiveService'
 import { disconnectAll as telnetDisconnectAll } from './services/telnetService'
 import { disconnectAll as vncDisconnectAll } from './services/vncService'
 
@@ -80,6 +81,7 @@ app.on('before-quit', e => {
   if (isQuitting) return
   e.preventDefault()
   isQuitting = true
+  closeAllInteractive()
   disconnectAll()
   telnetDisconnectAll()
   vncDisconnectAll()

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import type { Readable as NodeReadable } from 'node:stream'
 import { net, type IncomingMessage, type WebContents } from 'electron'
 import type {
+  AiApprovalMode,
   AiErrorCode,
   AiSettings,
   AiStartPayload,
@@ -304,34 +305,49 @@ async function streamRound(opts: RoundOptions): Promise<RoundResult> {
   return { content, toolCalls }
 }
 
-/** 代理模式系统提示词（按界面语言生成） */
-function agentInstructions(payloadCtx: NonNullable<AiStartPayload['context']>, lang: Language): string {
+/** 代理模式系统提示词（按界面语言与审批策略生成） */
+function agentInstructions(
+  payloadCtx: NonNullable<AiStartPayload['context']>,
+  lang: Language,
+  approvalMode: AiApprovalMode,
+): string {
   const target = `${payloadCtx.username}@${payloadCtx.host}${
     payloadCtx.connectionName ? `（${payloadCtx.connectionName}）` : ''
   }`
+  const auto = approvalMode === 'auto'
   if (lang === 'en-US') {
     return [
       'You are in Agent Mode and can operate the server of the current SSH session directly.',
       `Current session: ${target}.`,
-      'You have MCP tools: run_command, read_file, list_directory, write_file.',
+      'MCP tools: run_command, read_file, list_directory, write_file, start_interactive_session, send_interactive_input, read_interactive_output, close_interactive_session.',
       'Rules:',
       '1. Call tools when you need server information or need to perform a task; never fabricate results.',
-      '2. run_command and write_file require explicit user approval before execution. Call one tool at a time and wait for its result before deciding the next step.',
+      auto
+        ? '2. run_command, write_file, start_interactive_session, send_interactive_input and close_interactive_session are executed automatically without waiting for user approval. Still follow rule 3 strictly. Call one tool at a time and wait for its result before deciding the next step.'
+        : '2. run_command, write_file, start_interactive_session, send_interactive_input and close_interactive_session require explicit user approval before execution. Call one tool at a time and wait for its result before deciding the next step.',
       '3. Prefer read-only commands. Do not run destructive commands (rm -rf /, mkfs, dd, shutdown, etc.) unless the user explicitly asks and you have explained the risk.',
-      '4. Commands must be non-interactive (use -y/--no-pager where needed); avoid full-screen programs such as vim/top and avoid long-blocking commands.',
-      '5. When finished, summarize concisely in the user language; do not paste large raw outputs.',
+      '4. Use run_command for one-shot non-interactive commands (add -y/--no-pager where needed). When a command needs a password prompt, y/n confirmation, a REPL, or a full-screen program (top/vim), use start_interactive_session instead.',
+      auto
+        ? '5. Interactive flow: start_interactive_session returns a sessionId. Use send_interactive_input with text and/or keys (enter, tab, esc, backspace, space, ctrl-c, ctrl-d, ctrl-z, ctrl-l, up, down, left, right) to answer prompts; inputs execute automatically. read_interactive_output returns new output (mode=delta, default) or the current screen snapshot (mode=screen, suitable for top/vim). Always call close_interactive_session when done; sessions also close automatically at the end of this turn.'
+        : '5. Interactive flow: start_interactive_session returns a sessionId. Use send_interactive_input with text and/or keys (enter, tab, esc, backspace, space, ctrl-c, ctrl-d, ctrl-z, ctrl-l, up, down, left, right) to answer prompts; each input needs separate approval. read_interactive_output returns new output (mode=delta, default) or the current screen snapshot (mode=screen, suitable for top/vim). Always call close_interactive_session when done; sessions also close automatically at the end of this turn.',
+      '6. When finished, summarize concisely in the user language; do not paste large raw outputs.',
     ].join('\n')
   }
   return [
     '你现在处于代理模式，可以直接操作当前 SSH 会话所在的服务器。',
     `当前会话：${target}。`,
-    '你可以使用 MCP 工具：run_command、read_file、list_directory、write_file。',
+    '可用 MCP 工具：run_command、read_file、list_directory、write_file、start_interactive_session、send_interactive_input、read_interactive_output、close_interactive_session。',
     '规则：',
     '1. 需要服务器信息或要执行任务时调用工具，不要臆造结果。',
-    '2. run_command 与 write_file 需要用户确认后才会真正执行；一次只调用一个工具，等待结果后再决定下一步。',
+    auto
+      ? '2. run_command、write_file、start_interactive_session、send_interactive_input 与 close_interactive_session 会自动执行，无需等待用户确认；仍须严格遵守第 3 条。一次只调用一个工具，等待结果后再决定下一步。'
+      : '2. run_command、write_file、start_interactive_session、send_interactive_input 与 close_interactive_session 需要用户确认后才会真正执行；一次只调用一个工具，等待结果后再决定下一步。',
     '3. 优先使用只读命令；严禁执行 rm -rf /、mkfs、dd、shutdown 等破坏性操作，除非用户明确要求并已说明风险。',
-    '4. 命令必须是非交互式的（必要时加 -y/--no-pager），避免 vim/top 等全屏程序，避免长时间阻塞。',
-    '5. 完成后用与用户相同的语言简洁总结，不要整段粘贴原始输出。',
+    '4. 一次性非交互命令用 run_command（必要时加 -y/--no-pager）；遇到密码提示、y/n 确认、REPL 或全屏程序（top/vim）时改用 start_interactive_session。',
+    auto
+      ? '5. 交互流程：start_interactive_session 返回 sessionId；用 send_interactive_input 发送 text 和/或 keys（enter、tab、esc、backspace、space、ctrl-c、ctrl-d、ctrl-z、ctrl-l、up、down、left、right）应答提示，输入会自动执行；read_interactive_output 的 mode=delta（默认）读取新增输出，mode=screen 读取当前屏幕快照（适合 top/vim）。流程结束必须调用 close_interactive_session；会话也会在本轮对话结束时自动关闭。'
+      : '5. 交互流程：start_interactive_session 返回 sessionId；用 send_interactive_input 发送 text 和/或 keys（enter、tab、esc、backspace、space、ctrl-c、ctrl-d、ctrl-z、ctrl-l、up、down、left、right）应答提示，每次输入都需用户单独确认；read_interactive_output 的 mode=delta（默认）读取新增输出，mode=screen 读取当前屏幕快照（适合 top/vim）。流程结束必须调用 close_interactive_session；会话也会在本轮对话结束时自动关闭。',
+    '6. 完成后用与用户相同的语言简洁总结，不要整段粘贴原始输出。',
   ].join('\n')
 }
 
@@ -340,8 +356,9 @@ function buildAgentMessages(
   messages: ChatMessage[],
   ctx: NonNullable<AiStartPayload['context']>,
   lang: Language,
+  approvalMode: AiApprovalMode,
 ): ChatMessage[] {
-  const instructions = agentInstructions(ctx, lang)
+  const instructions = agentInstructions(ctx, lang, approvalMode)
   const copy = [...messages]
   const idx = copy.findIndex(m => m.role === 'system')
   if (idx >= 0) {
@@ -386,6 +403,7 @@ interface ChatRuntime {
   key: string
   model: string
   language: Language
+  approvalMode: AiApprovalMode
   sendDelta: (text: string) => void
   sendDone: () => void
   sendTool: (call: AiToolCall) => void
@@ -418,102 +436,108 @@ async function runAgent(rt: ChatRuntime, payload: AiStartPayload): Promise<void>
   if (!ctx || !getSession(ctx.sessionId)) throw new Error(noSession)
 
   // 每个请求独立创建 MCP 服务与客户端（工具绑定当前会话）
-  const client = new McpClient(new McpServer({ sessionId: ctx.sessionId }))
-  await client.initialize()
-  const tools = toOpenAiTools(await client.listTools())
+  const server = new McpServer({ sessionId: ctx.sessionId })
+  try {
+    const client = new McpClient(server)
+    await client.initialize()
+    const tools = toOpenAiTools(await client.listTools())
 
-  const messages = buildAgentMessages(payload.messages, ctx, rt.language)
+    const messages = buildAgentMessages(payload.messages, ctx, rt.language, rt.approvalMode)
 
-  // 工具调用轮次不设上限：模型不再返回 tool_calls 或用户中止时结束
-  for (;;) {
-    if (rt.controller.signal.aborted) {
-      rt.sendDone()
-      return
-    }
-
-    const result = await streamRound({
-      base: rt.base,
-      key: rt.key,
-      model: rt.model,
-      messages,
-      tools,
-      signal: rt.controller.signal,
-      onDelta: rt.sendDelta,
-      onActivity: rt.armWatchdog,
-    })
-    // 一轮结束即清理看门狗：等待用户确认期间不应触发无数据超时
-    clearWatchdog(rt.reqId)
-
-    if (rt.controller.signal.aborted) {
-      rt.sendDone()
-      return
-    }
-    if (result.toolCalls.length === 0) {
-      rt.sendDone()
-      return
-    }
-
-    messages.push({
-      role: 'assistant',
-      content: result.content || null,
-      tool_calls: result.toolCalls,
-    })
-
-    for (const call of result.toolCalls) {
+    // 工具调用轮次不设上限：模型不再返回 tool_calls 或用户中止时结束
+    for (;;) {
       if (rt.controller.signal.aborted) {
         rt.sendDone()
         return
       }
 
-      const name = call.function.name
-      const parsed = parseToolArgs(call.function.arguments)
-      const needsApproval = toolNeedsApproval(name)
-      const toolCall: AiToolCall = {
-        id: call.id,
-        name,
-        args: parsed.args,
-        needsApproval,
-        status: needsApproval ? 'pending' : 'running',
-      }
-      rt.sendTool(toolCall)
+      const result = await streamRound({
+        base: rt.base,
+        key: rt.key,
+        model: rt.model,
+        messages,
+        tools,
+        signal: rt.controller.signal,
+        onDelta: rt.sendDelta,
+        onActivity: rt.armWatchdog,
+      })
+      // 一轮结束即清理看门狗：等待用户确认期间不应触发无数据超时
+      clearWatchdog(rt.reqId)
 
-      if (needsApproval) {
-        const approved = await waitForApproval(rt.reqId, call.id, rt.controller.signal)
-        if (!approved) {
-          const denied =
-            rt.language === 'zh-CN' ? '用户拒绝执行该操作。' : 'The user denied this operation.'
-          rt.sendToolResult(call.id, 'denied', denied)
-          messages.push({
-            role: 'tool',
-            tool_call_id: call.id,
-            content: 'The user denied this operation.',
-          })
+      if (rt.controller.signal.aborted) {
+        rt.sendDone()
+        return
+      }
+      if (result.toolCalls.length === 0) {
+        rt.sendDone()
+        return
+      }
+
+      messages.push({
+        role: 'assistant',
+        content: result.content || null,
+        tool_calls: result.toolCalls,
+      })
+
+      for (const call of result.toolCalls) {
+        if (rt.controller.signal.aborted) {
+          rt.sendDone()
+          return
+        }
+
+        const name = call.function.name
+        const parsed = parseToolArgs(call.function.arguments)
+        const needsApproval = toolNeedsApproval(name) && rt.approvalMode === 'manual'
+        const toolCall: AiToolCall = {
+          id: call.id,
+          name,
+          args: parsed.args,
+          needsApproval,
+          status: needsApproval ? 'pending' : 'running',
+        }
+        rt.sendTool(toolCall)
+
+        if (needsApproval) {
+          const approved = await waitForApproval(rt.reqId, call.id, rt.controller.signal)
+          if (!approved) {
+            const denied =
+              rt.language === 'zh-CN' ? '用户拒绝执行该操作。' : 'The user denied this operation.'
+            rt.sendToolResult(call.id, 'denied', denied)
+            messages.push({
+              role: 'tool',
+              tool_call_id: call.id,
+              content: 'The user denied this operation.',
+            })
+            continue
+          }
+          rt.sendTool({ ...toolCall, status: 'running' })
+        }
+
+        if (parsed.error) {
+          rt.sendToolResult(call.id, 'error', parsed.error)
+          messages.push({ role: 'tool', tool_call_id: call.id, content: parsed.error })
           continue
         }
-        rt.sendTool({ ...toolCall, status: 'running' })
-      }
 
-      if (parsed.error) {
-        rt.sendToolResult(call.id, 'error', parsed.error)
-        messages.push({ role: 'tool', tool_call_id: call.id, content: parsed.error })
-        continue
-      }
+        try {
+          const r = await client.callTool(name, parsed.args)
+          rt.sendToolResult(call.id, r.isError ? 'error' : 'done', r.text)
+          messages.push({ role: 'tool', tool_call_id: call.id, content: r.text })
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e)
+          rt.sendToolResult(call.id, 'error', msg)
+          messages.push({ role: 'tool', tool_call_id: call.id, content: msg })
+        }
 
-      try {
-        const r = await client.callTool(name, parsed.args)
-        rt.sendToolResult(call.id, r.isError ? 'error' : 'done', r.text)
-        messages.push({ role: 'tool', tool_call_id: call.id, content: r.text })
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e)
-        rt.sendToolResult(call.id, 'error', msg)
-        messages.push({ role: 'tool', tool_call_id: call.id, content: msg })
-      }
-
-      if (rt.controller.signal.aborted) {
-        rt.sendDone()
-        return
+        if (rt.controller.signal.aborted) {
+          rt.sendDone()
+          return
+        }
       }
     }
+  } finally {
+    // 本轮对话结束（正常完成 / 中止 / 出错）时回收交互式命令会话
+    await server.dispose()
   }
 }
 
@@ -555,6 +579,7 @@ export async function streamChat(
       key,
       model,
       language,
+      approvalMode: ai.approvalMode ?? 'manual',
       sendDelta: text => send('ai:delta', text),
       sendDone: () => send('ai:done'),
       sendTool: call => {

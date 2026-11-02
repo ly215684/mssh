@@ -324,6 +324,8 @@ export default {
   'ai.providerCustom': 'Custom (OpenAI-compatible)',
   'ai.modeChat': 'Chat',
   'ai.modeAgent': 'Agent',
+  'ai.approvalManual': 'Manual approval',
+  'ai.approvalAuto': 'Auto approval',
   'ai.needSession': 'Agent mode requires an active SSH session. Connect to a server in the terminal first.',
   'ai.agentInputPh': 'Describe the operation you want to perform on the server…',
   'ai.toolRunCommand': 'Run command',
@@ -341,6 +343,14 @@ export default {
   'ai.toolNoOutput': '(no output)',
   'ai.toolNoArgs': '(missing command argument)',
   'ai.toolPath': 'Path',
+  'ai.toolStartInteractive': 'Start interactive command',
+  'ai.toolSendInput': 'Send input',
+  'ai.toolReadOutput': 'Read output',
+  'ai.toolCloseInteractive': 'Close interactive session',
+  'ai.toolSession': 'Session',
+  'ai.toolInput': 'Input',
+  'ai.toolKeys': 'Keys',
+  'ai.toolMode': 'Mode',
 
   // Status bar
   'status.protocol': 'SSH2',

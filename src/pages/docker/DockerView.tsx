@@ -3,11 +3,13 @@ import {
   useEffect,
   useRef,
   useState,
+  type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from 'react'
 import {
   ArrowUp,
+  BadgeCheck,
   Boxes,
   CheckCircle2,
   Download,
@@ -21,6 +23,7 @@ import {
   RotateCw,
   ScrollText,
   Square,
+  Star,
   Terminal,
   Trash2,
   XCircle,
@@ -1029,6 +1032,112 @@ function ComposeModal({
   )
 }
 
+interface DockerSearchItem {
+  name: string
+  description: string
+  stars: number
+  official: boolean
+}
+
+interface DockerTagPage {
+  items: string[]
+  hasMore: boolean
+}
+
+type PullSuggestion =
+  | { mode: 'repository'; items: DockerSearchItem[] }
+  | {
+      mode: 'tag'
+      repository: string
+      prefix: string
+      items: string[]
+      page: number
+      hasMore: boolean
+      loadingMore: boolean
+    }
+
+type PullQuery =
+  | { mode: 'repository'; query: string }
+  | { mode: 'tag'; repository: string; prefix: string }
+
+const DOCKER_HUB_REPOSITORY_PART = /^[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*$/
+const DOCKER_HUB_TAG_PREFIX = /^[A-Za-z0-9_.-]*$/
+const DOCKER_HUB_TAG_PAGE_SIZE = 10
+
+async function queryDockerHubTags(
+  sessionId: string,
+  repositoryInput: string,
+  prefix: string,
+  page: number,
+): Promise<DockerTagPage> {
+  const repository = repositoryInput.trim()
+  if (!repository || repository.length > 255 || /\s|@/.test(repository)) {
+    throw new Error('Unsupported Docker Hub repository')
+  }
+  if (prefix.length > 128 || !DOCKER_HUB_TAG_PREFIX.test(prefix)) {
+    throw new Error('Invalid Docker Hub tag prefix')
+  }
+
+  const parts = repository.split('/')
+  if (parts.length > 2 || parts.some(part => !DOCKER_HUB_REPOSITORY_PART.test(part))) {
+    throw new Error('Unsupported Docker Hub repository')
+  }
+  if (parts.length === 2 && (/[.:]/.test(parts[0]) || parts[0] === 'localhost')) {
+    throw new Error('Unsupported Docker Hub repository')
+  }
+
+  const normalized = parts.length === 1 ? `library/${parts[0]}` : repository
+  const path = normalized.split('/').map(encodeURIComponent).join('/')
+  const url = new URL(`https://hub.docker.com/v2/repositories/${path}/tags`)
+  url.searchParams.set('page_size', String(DOCKER_HUB_TAG_PAGE_SIZE))
+  url.searchParams.set('page', String(page))
+  url.searchParams.set('ordering', 'last_updated')
+  if (prefix) url.searchParams.set('name', prefix)
+
+  const result = await window.api.sshExec(
+    sessionId,
+    `curl --fail --silent --show-error --location --max-time 8 ${shq(url.toString())}`,
+  )
+  if (result.code !== 0) throw new Error(result.stderr || result.stdout)
+
+  const body = JSON.parse(result.stdout) as { results?: unknown; next?: unknown }
+  if (!Array.isArray(body.results)) throw new Error('Invalid Docker Hub tags response')
+  const items = [...new Set(body.results.map(item => {
+    if (!item || typeof item !== 'object') return ''
+    const name = (item as { name?: unknown }).name
+    return typeof name === 'string' ? name : ''
+  }).filter(name => name && name.startsWith(prefix)))]
+  if (page === 1 && !prefix && items.includes('latest')) {
+    items.splice(items.indexOf('latest'), 1)
+    items.unshift('latest')
+  }
+  return { items, hasMore: typeof body.next === 'string' && body.next.length > 0 }
+}
+
+function hasRegistryHost(repository: string): boolean {
+  const first = repository.split('/')[0]
+  return repository.includes('/') && (first === 'localhost' || /[.:]/.test(first))
+}
+
+function parsePullQuery(raw: string): PullQuery | null {
+  const value = raw.trim()
+  if (!value || /\s|@/.test(value)) return null
+
+  const colon = value.lastIndexOf(':')
+  if (colon > value.lastIndexOf('/')) {
+    const repository = value.slice(0, colon)
+    if (!repository || hasRegistryHost(repository)) return null
+    return { mode: 'tag', repository, prefix: value.slice(colon + 1) }
+  }
+  if (hasRegistryHost(value)) return null
+  return { mode: 'repository', query: value }
+}
+
+function hasEmptyTag(raw: string): boolean {
+  const value = raw.trim()
+  return value.endsWith(':') && value.lastIndexOf(':') > value.lastIndexOf('/')
+}
+
 /** 拉取镜像：输入镜像名 → docker pull <image>（流式输出） */
 function PullImageModal({
   sessionId,
@@ -1044,8 +1153,17 @@ function PullImageModal({
   const [phase, setPhase] = useState<'pick' | 'run'>('pick')
   const [output, setOutput] = useState('')
   const [code, setCode] = useState<number | null>(null)
+  const [suggestionsOpen, setSuggestionsOpen] = useState(false)
+  const [suggestion, setSuggestion] = useState<PullSuggestion | null>(null)
+  const [suggestionsLoading, setSuggestionsLoading] = useState(false)
+  const [suggestionsFailed, setSuggestionsFailed] = useState(false)
+  const [activeSuggestion, setActiveSuggestion] = useState(0)
   const streamIdRef = useRef<string | null>(null)
   const preRef = useRef<HTMLPreElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const suggestionBoxRef = useRef<HTMLDivElement>(null)
+  const searchRequestRef = useRef(0)
+  const tagLoadingMoreRef = useRef(false)
 
   useEffect(() => {
     if (phase !== 'run') return
@@ -1071,6 +1189,107 @@ function PullImageModal({
     if (preRef.current) preRef.current.scrollTop = preRef.current.scrollHeight
   }, [output])
 
+  useEffect(() => {
+    const requestId = ++searchRequestRef.current
+    let disposed = false
+    const isCurrent = () => !disposed && searchRequestRef.current === requestId
+
+    setSuggestion(null)
+    setSuggestionsLoading(false)
+    setSuggestionsFailed(false)
+    setActiveSuggestion(0)
+    if (phase !== 'pick' || !suggestionsOpen) return
+
+    const query = parsePullQuery(image)
+    if (!query) return
+
+    const run = async () => {
+      try {
+        if (query.mode === 'repository') {
+          const result = await window.api.sshExec(
+            sessionId,
+            `docker search --limit 8 --format '{{json .}}' ${shq(query.query)}`,
+          )
+          if (!isCurrent()) return
+          if (result.code !== 0) throw new Error(result.stderr || result.stdout)
+          const items = parseJsonl(result.stdout).map(row => ({
+            name: row.Name == null ? '' : String(row.Name),
+            description: row.Description == null ? '' : String(row.Description),
+            stars: Number(row.StarCount ?? 0) || 0,
+            official: row.IsOfficial === true || String(row.IsOfficial).toLowerCase() === 'true',
+          })).filter(item => item.name)
+          if (isCurrent()) setSuggestion({ mode: 'repository', items })
+        } else {
+          const result = await queryDockerHubTags(sessionId, query.repository, query.prefix, 1)
+          if (!isCurrent()) return
+          if (result.items.length === 0) {
+            setImage(`${query.repository}:latest`)
+            setSuggestion(null)
+            setSuggestionsOpen(false)
+          } else {
+            setSuggestion({
+              mode: 'tag',
+              repository: query.repository,
+              prefix: query.prefix,
+              items: result.items,
+              page: 1,
+              hasMore: result.hasMore,
+              loadingMore: false,
+            })
+          }
+        }
+      } catch {
+        if (isCurrent()) {
+          if (query.mode === 'tag') {
+            setImage(`${query.repository}:latest`)
+            setSuggestion(null)
+            setSuggestionsOpen(false)
+            message.error(t('docker.pullTagsFailedLatest'))
+          } else {
+            setSuggestionsFailed(true)
+          }
+        }
+      } finally {
+        if (isCurrent()) setSuggestionsLoading(false)
+      }
+    }
+
+    const timer = window.setTimeout(() => {
+      if (!isCurrent()) return
+      setSuggestionsLoading(true)
+      setSuggestion(query.mode === 'repository'
+        ? { mode: 'repository', items: [] }
+        : {
+            mode: 'tag',
+            repository: query.repository,
+            prefix: query.prefix,
+            items: [],
+            page: 0,
+            hasMore: false,
+            loadingMore: false,
+          })
+      void run()
+    }, 300)
+
+    return () => {
+      disposed = true
+      searchRequestRef.current = requestId + 1
+      tagLoadingMoreRef.current = false
+      window.clearTimeout(timer)
+    }
+  }, [image, phase, sessionId, suggestionsOpen, t])
+
+  useEffect(() => {
+    if (!suggestionsOpen) return
+    const onMouseDown = (event: MouseEvent) => {
+      if (!suggestionBoxRef.current?.contains(event.target as Node)) {
+        setSuggestionsOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', onMouseDown)
+    return () => document.removeEventListener('mousedown', onMouseDown)
+  }, [suggestionsOpen])
+
   const handleClose = () => {
     if (streamIdRef.current) {
       window.api.sshStreamKill(streamIdRef.current)
@@ -1079,12 +1298,96 @@ function PullImageModal({
     onClose()
   }
 
+  const selectRepository = (item: DockerSearchItem) => {
+    setImage(`${item.name}:`)
+    setSuggestion(null)
+    setSuggestionsOpen(true)
+    window.requestAnimationFrame(() => {
+      inputRef.current?.focus()
+      const cursor = item.name.length + 1
+      inputRef.current?.setSelectionRange(cursor, cursor)
+    })
+  }
+
+  const selectTag = (repository: string, tag: string) => {
+    setImage(`${repository}:${tag}`)
+    setSuggestion(null)
+    setSuggestionsOpen(false)
+    inputRef.current?.focus()
+  }
+
+  const selectSuggestion = (index: number) => {
+    if (!suggestion) return
+    if (suggestion.mode === 'repository') {
+      const item = suggestion.items[index]
+      if (item) selectRepository(item)
+    } else {
+      const tag = suggestion.items[index]
+      if (tag) selectTag(suggestion.repository, tag)
+    }
+  }
+
+  const loadMoreTags = async () => {
+    if (
+      !suggestion ||
+      suggestion.mode !== 'tag' ||
+      !suggestion.hasMore ||
+      tagLoadingMoreRef.current
+    ) return
+
+    const current = suggestion
+    const requestId = searchRequestRef.current
+    const nextPage = current.page + 1
+    tagLoadingMoreRef.current = true
+    setSuggestion({ ...current, loadingMore: true })
+    try {
+      const result = await queryDockerHubTags(
+        sessionId,
+        current.repository,
+        current.prefix,
+        nextPage,
+      )
+      if (requestId !== searchRequestRef.current) return
+      setSuggestion(previous => {
+        if (
+          !previous ||
+          previous.mode !== 'tag' ||
+          previous.repository !== current.repository ||
+          previous.prefix !== current.prefix ||
+          previous.page !== current.page
+        ) return previous
+        return {
+          ...previous,
+          items: [...new Set([...previous.items, ...result.items])],
+          page: nextPage,
+          hasMore: result.hasMore,
+          loadingMore: false,
+        }
+      })
+    } catch {
+      if (requestId !== searchRequestRef.current) return
+      setSuggestion(previous =>
+        previous?.mode === 'tag' && previous.page === current.page
+          ? { ...previous, loadingMore: false }
+          : previous,
+      )
+      message.error(t('docker.pullSuggestFailed'))
+    } finally {
+      if (requestId === searchRequestRef.current) tagLoadingMoreRef.current = false
+    }
+  }
+
   const start = async () => {
     const img = image.trim()
     if (!img) {
       void errorAlert(t('docker.pullFailed'), t('docker.invalidImage'))
       return
     }
+    if (hasEmptyTag(img)) {
+      void errorAlert(t('docker.pullFailed'), t('docker.pullTagRequired'))
+      return
+    }
+    setSuggestionsOpen(false)
     setPhase('run')
     setOutput('')
     setCode(null)
@@ -1094,6 +1397,29 @@ function PullImageModal({
     } catch (e) {
       setCode(1)
       setOutput(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  const showSuggestions = suggestionsOpen && suggestion !== null
+  const suggestionCount = suggestion?.items.length ?? 0
+  const handleInputKeyDown = (e: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Escape' && showSuggestions) {
+      e.preventDefault()
+      e.stopPropagation()
+      setSuggestionsOpen(false)
+      return
+    }
+    if (showSuggestions && suggestionCount > 0 && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+      e.preventDefault()
+      setActiveSuggestion(current => e.key === 'ArrowDown'
+        ? (current + 1) % suggestionCount
+        : (current - 1 + suggestionCount) % suggestionCount)
+      return
+    }
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      if (showSuggestions && suggestionCount > 0) selectSuggestion(activeSuggestion)
+      else void start()
     }
   }
 
@@ -1116,7 +1442,7 @@ function PullImageModal({
             <Button onClick={handleClose}>{t('common.cancel')}</Button>
             <Button
               variant="primary"
-              disabled={!image.trim()}
+              disabled={!image.trim() || hasEmptyTag(image)}
               icon={<Download size={14} />}
               onClick={() => void start()}
             >
@@ -1148,17 +1474,124 @@ function PullImageModal({
       {phase === 'pick' ? (
         <div className="flex flex-col gap-2.5">
           <div className="text-xs text-dim leading-relaxed">{t('docker.pullHint')}</div>
-          <Input
-            value={image}
-            onChange={e => setImage(e.target.value)}
-            placeholder={t('docker.pullPlaceholder')}
-            spellCheck={false}
-            autoFocus
-            className="font-mono"
-            onKeyDown={e => {
-              if (e.key === 'Enter') void start()
-            }}
-          />
+          <div ref={suggestionBoxRef} className="relative">
+            <Input
+              ref={inputRef}
+              value={image}
+              onChange={e => {
+                setImage(e.target.value)
+                setSuggestionsOpen(true)
+              }}
+              placeholder={t('docker.pullPlaceholder')}
+              spellCheck={false}
+              autoFocus
+              className="font-mono"
+              role="combobox"
+              aria-autocomplete="list"
+              aria-expanded={showSuggestions}
+              aria-controls="docker-pull-suggestions"
+              aria-activedescendant={showSuggestions && suggestionCount > 0
+                ? `docker-pull-suggestion-${activeSuggestion}`
+                : undefined}
+              onKeyDown={handleInputKeyDown}
+            />
+            {showSuggestions && (
+              <div
+                id="docker-pull-suggestions"
+                role="listbox"
+                onScroll={e => {
+                  if (suggestion.mode !== 'tag') return
+                  const list = e.currentTarget
+                  if (list.scrollTop + list.clientHeight >= list.scrollHeight - 24) {
+                    void loadMoreTags()
+                  }
+                }}
+                className="relative z-20 mt-1 max-h-60 overflow-y-auto rounded-md border border-bd bg-elevated py-1 shadow-pop"
+              >
+                {suggestionsLoading ? (
+                  <div className="flex items-center gap-2 px-3 py-2.5 text-xs text-dim">
+                    <Loader2 size={13} className="animate-spin" />
+                    {t(suggestion.mode === 'repository'
+                      ? 'docker.pullSearching'
+                      : 'docker.pullTagsLoading')}
+                  </div>
+                ) : suggestionsFailed ? (
+                  <div className="px-3 py-2.5 text-xs text-dim">
+                    {t('docker.pullSuggestFailed')}
+                  </div>
+                ) : suggestionCount === 0 ? (
+                  <div className="px-3 py-2.5 text-xs text-dim">
+                    {t('docker.pullNoResults')}
+                  </div>
+                ) : suggestion.mode === 'repository' ? (
+                  suggestion.items.map((item, index) => (
+                    <div
+                      key={item.name}
+                      id={`docker-pull-suggestion-${index}`}
+                      role="option"
+                      aria-selected={index === activeSuggestion}
+                      onMouseEnter={() => setActiveSuggestion(index)}
+                      onMouseDown={e => {
+                        e.preventDefault()
+                        selectRepository(item)
+                      }}
+                      className={`mx-1 cursor-pointer rounded-sm px-2.5 py-2 ${
+                        index === activeSuggestion ? 'bg-hover' : ''
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="min-w-0 flex-1 truncate font-mono text-[13px] text-fg">
+                          {item.name}
+                        </span>
+                        {item.official && (
+                          <span className="inline-flex shrink-0 items-center gap-1 text-[11px] text-accent">
+                            <BadgeCheck size={12} />
+                            {t('docker.pullOfficial')}
+                          </span>
+                        )}
+                        {item.stars > 0 && (
+                          <span className="inline-flex shrink-0 items-center gap-1 text-[11px] text-dim">
+                            <Star size={11} />
+                            {item.stars.toLocaleString()}
+                          </span>
+                        )}
+                      </div>
+                      {item.description && (
+                        <div className="mt-0.5 truncate text-xs text-dim" title={item.description}>
+                          {item.description}
+                        </div>
+                      )}
+                    </div>
+                  ))
+                ) : (
+                  suggestion.items.map((tag, index) => (
+                    <div
+                      key={tag}
+                      id={`docker-pull-suggestion-${index}`}
+                      role="option"
+                      aria-selected={index === activeSuggestion}
+                      onMouseEnter={() => setActiveSuggestion(index)}
+                      onMouseDown={e => {
+                        e.preventDefault()
+                        selectTag(suggestion.repository, tag)
+                      }}
+                      className={`mx-1 cursor-pointer rounded-sm px-2.5 py-2 font-mono text-[13px] text-fg ${
+                        index === activeSuggestion ? 'bg-hover' : ''
+                      }`}
+                    >
+                      {tag}
+                    </div>
+                  ))
+                )}
+                {suggestion.mode === 'tag' && suggestion.loadingMore && (
+                  <div className="flex items-center justify-center gap-2 px-3 py-2 text-xs text-dim">
+                    <Loader2 size={13} className="animate-spin" />
+                    {t('docker.pullTagsLoading')}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       ) : (
         <pre
